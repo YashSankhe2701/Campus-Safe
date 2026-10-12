@@ -62,6 +62,9 @@ def calculate_emergency_aware_route(
     conditions: EmergencyConditionSnapshot,
     start_node_id: UUID | str,
     destination_node_id: UUID | str,
+    *,
+    blocked_edge_ids: list[UUID | str] | None = None,
+    blocked_node_ids: list[UUID | str] | None = None,
 ) -> ShortestRouteResponse:
     """Remove applicable blocked topology from a fresh copy, then minimize metres.
 
@@ -75,6 +78,29 @@ def calculate_emergency_aware_route(
         raise RouteNodeNotFoundError("Start node was not found in this campus.")
     if destination not in graph:
         raise RouteNodeNotFoundError("Destination node was not found in this campus.")
+
+    dynamic_blocked_nodes = tuple(str(UUID(str(n))) for n in (blocked_node_ids or []))
+    dynamic_blocked_edges = tuple(str(UUID(str(e))) for e in (blocked_edge_ids or []))
+    if dynamic_blocked_nodes:
+        loaded_nodes = set(graph.nodes)
+        for node in dynamic_blocked_nodes:
+            if node not in loaded_nodes:
+                raise RouteNodeNotFoundError(f"Blocked node {node} was not found in this campus.")
+    if dynamic_blocked_edges:
+        loaded_edge_ids = {
+            str(attr.get("id"))
+            for _, _, _, attr in graph.edges(keys=True, data=True)
+        }
+        for edge in dynamic_blocked_edges:
+            if edge not in loaded_edge_ids:
+                raise RouteNodeNotFoundError(f"Blocked edge {edge} was not found in this campus.")
+
+    if dynamic_blocked_nodes or dynamic_blocked_edges:
+        conditions = EmergencyConditionSnapshot(
+            active_emergency_ids=conditions.active_emergency_ids,
+            blocked_node_ids=tuple(sorted(set(conditions.blocked_node_ids) | set(dynamic_blocked_nodes))),
+            blocked_edge_ids=tuple(sorted(set(conditions.blocked_edge_ids) | set(dynamic_blocked_edges))),
+        )
 
     blocked_nodes = set(conditions.blocked_node_ids)
     routing_graph = build_unblocked_graph(graph, conditions)
@@ -96,6 +122,8 @@ async def load_emergency_aware_route(
     start_node_id: UUID | str,
     destination_node_id: UUID | str,
     *,
+    blocked_edge_ids: list[UUID | str] | None = None,
+    blocked_node_ids: list[UUID | str] | None = None,
     condition_repository: EmergencyConditionRepository | None = None,
 ) -> tuple[ShortestRouteResponse, EmergencyConditionSnapshot]:
     """Load fresh topology and condition snapshots, then calculate a route."""
@@ -105,11 +133,23 @@ async def load_emergency_aware_route(
         repository.load_conditions,
         str(UUID(campus_id)),
     )
+
+    dynamic_blocked_nodes = tuple(str(UUID(str(n))) for n in (blocked_node_ids or []))
+    dynamic_blocked_edges = tuple(str(UUID(str(e))) for e in (blocked_edge_ids or []))
+    if dynamic_blocked_nodes or dynamic_blocked_edges:
+        conditions = EmergencyConditionSnapshot(
+            active_emergency_ids=conditions.active_emergency_ids,
+            blocked_node_ids=tuple(sorted(set(conditions.blocked_node_ids) | set(dynamic_blocked_nodes))),
+            blocked_edge_ids=tuple(sorted(set(conditions.blocked_edge_ids) | set(dynamic_blocked_edges))),
+        )
+
     route = calculate_emergency_aware_route(
         graph,
         conditions,
         start_node_id,
         destination_node_id,
+        blocked_edge_ids=blocked_edge_ids,
+        blocked_node_ids=blocked_node_ids,
     )
     return route, conditions
 

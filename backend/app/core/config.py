@@ -32,7 +32,10 @@ class Settings:
         self.ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
 
         # CORS
-        cors_origins_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+        cors_origins_raw = os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
+        )
         self.CORS_ORIGINS: List[str] = [
             origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()
         ]

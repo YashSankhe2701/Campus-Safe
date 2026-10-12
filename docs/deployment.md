@@ -1,145 +1,262 @@
-# CAMPUS-SAFE Deployment Guide
+# CAMPUS-SAFE Production Deployment Guide
 
-> **Phase: 6.5 — Deployment and Version-Control Foundation**
+> **Deployment Targets**:
+> - **Frontend**: Vercel (Next.js 15 / 16 App Router)
+> - **Backend**: Container-native FastAPI service (Railway, Render, AWS ECS, or Google Cloud Run via `backend/Dockerfile`)
+> - **Database**: Supabase PostgreSQL (Managed Transaction Pooler with Row-Level Security)
 
-## Target Deployment Architecture
+---
+
+## 1. Architecture Overview
 
 ```
-GitHub Repository
-       │
-       ├── Push to main
-       │
-       ├──► Vercel (Frontend)
-       │    └── Next.js 16 (TypeScript, Tailwind CSS, SVG Map)
-       │         ▲
-       │         │ HTTPS REST API requests (CORS enabled)
-       │         ▼
-       └──► Container Host: Railway / Render / Cloud Run (Backend)
-            └── Docker: FastAPI (Python 3.11, Uvicorn, NetworkX, scikit-learn)
-                 │
-                 │ PostgreSQL connection (Transaction pooler)
-                 ▼
-            Supabase Managed PostgreSQL
-            └── Campuses, Buildings, Floors, Graph Nodes, Graph Edges, Exits
+                      ┌──────────────────────────────────────┐
+                      │              End User                │
+                      └──────────────────┬───────────────────┘
+                                         │
+                                         ▼
+                      ┌──────────────────────────────────────┐
+                      │           Vercel Platform            │
+                      │   - Framework: Next.js App Router    │
+                      │   - Root Directory: frontend/        │
+                      │   - Static Optimization & SVG Canvas │
+                      └──────────────────┬───────────────────┘
+                                         │
+                                         │ HTTPS Requests (CORS Enabled)
+                                         ▼
+                      ┌──────────────────────────────────────┐
+                      │       Backend Container Host         │
+                      │  (Railway / Render / Cloud Run / ECS)│
+                      │   - Docker: python:3.11-slim         │
+                      │   - ASGI: Uvicorn with proxy headers │
+                      │   - In-Memory NetworkX Graph Engine  │
+                      │   - Scikit-Learn Travel-Time Model   │
+                      └──────────────────┬───────────────────┘
+                                         │
+                                         │ Serverless-Friendly Pooling (psycopg)
+                                         ▼
+                      ┌──────────────────────────────────────┐
+                      │          Supabase PostgreSQL         │
+                      │   - Transaction Pooler (Port 6543)   │
+                      │   - 12 Tables with RLS Default-Deny  │
+                      │   - Authoritative Synthetic Topology │
+                      └──────────────────────────────────────┘
 ```
 
-Do not deploy the Python backend directly on Vercel Serverless Functions. The Python runtime dependencies (`scikit-learn`, `numpy`, `scipy`, `psycopg`) and the 9.5 MB Random Forest artifact exceed serverless memory and bundle size efficiency guidelines. The backend is container-native and should be hosted on a persistent container platform.
+> [!IMPORTANT]
+> **Do not deploy the FastAPI backend to Vercel Serverless Functions.**
+> Python data science libraries (`scikit-learn`, `numpy`, `scipy`, `psycopg`) and the 9.5 MB Random Forest model artifact exceed serverless function memory and bundle constraints. Deploy the backend to a persistent container service using the repository's `backend/Dockerfile`.
 
 ---
 
-## Required Environment Variables
+## 2. Vercel Frontend Configuration
 
-Configure environment variables in provider dashboards by name. **Never commit secret keys or database connection strings to version control.**
+### Project Settings
+When importing the repository into the Vercel Dashboard:
+- **Project Name**: `campus-safe` (or preferred name)
+- **Framework Preset**: `Next.js`
+- **Root Directory**: `frontend` (Click *Edit* and select `frontend`)
+- **Build Command**: `npm run build` (or Next.js default `next build`)
+- **Output Directory**: `.next` (Next.js default)
+- **Install Command**: `npm install`
 
-### Frontend Environment Variables (Vercel)
+### Compile-Time API Validation
+The frontend's `frontend/next.config.ts` enforces production configuration:
+```ts
+if (process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_API_URL) {
+  throw new Error("Missing required environment variable: NEXT_PUBLIC_API_URL.");
+}
+```
+If `NEXT_PUBLIC_API_URL` is omitted from Vercel's Environment Variables, the build will fail immediately with a clear error rather than deploying a broken application pointing to `localhost`.
 
-| Variable Name | Required | Description |
-|---|---|---|
-| `NEXT_PUBLIC_API_URL` | **Yes (Production)** | Fully-qualified HTTPS URL of the deployed FastAPI backend (e.g. `https://api.yourdomain.com`). Next.js production builds validate this variable. |
-| `NEXT_PUBLIC_CAMPUS_ID` | Optional | Default campus UUID. Defaults to demo campus `10000000-0000-4000-8000-000000000001` if omitted. |
-
-### Backend Environment Variables (Container Host)
-
-| Variable Name | Required | Description |
-|---|---|---|
-| `ENVIRONMENT` | Yes | Set to `production` in live environments, `development` locally. |
-| `PORT` | Yes | Port uvicorn binds to. Injected automatically by most container hosts (defaults to `8000`). |
-| `CORS_ORIGINS` | Yes | Comma-separated list of allowed frontend origins (e.g. `https://campus-safe.vercel.app,https://yourdomain.com`). |
-| `SUPABASE_DB_URL` | Yes | PostgreSQL connection URI for the Supabase database. Use the **Transaction Pooler** URI (port 6543) for serverless-compatible connection reuse. |
-| `SUPABASE_URL` | Optional | Supabase Project API URL. |
-| `SUPABASE_PUBLISHABLE_KEY` | Optional | Public anonymous API key. |
-| `SUPABASE_SECRET_KEY` | Optional | Supabase service-role secret key. **Never expose to frontend.** |
-| `EVACUATION_MODEL_PATH` | Optional | Filesystem path to `evacuation_time_rf.joblib`. Defaults to `/app/artifacts/evacuation_time_rf.joblib` in Docker. |
+### Browser Credential Isolation
+The frontend communicates exclusively with the backend via `NEXT_PUBLIC_API_URL`. **No database credentials, service-role keys, or backend secrets are ever provided to or exposed in the frontend.**
 
 ---
 
-## Deployment Sequence
+## 3. FastAPI Backend Container Deployment
 
-Follow this sequence to ensure zero-downtime and clean dependency resolution:
+### Docker Build & Runtime Specification
+The backend container is defined in `backend/Dockerfile`:
+- **Base Image**: `python:3.11-slim`
+- **Working Directory**: `/app`
+- **Port Binding**: Binds to `0.0.0.0` using the platform-injected `${PORT}` environment variable (defaults to `8000`).
+- **ASGI Server**: `uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers`
+- **Healthcheck**: `curl -f http://localhost:${PORT}/api/health || exit 1`
+- **Security**: Runs non-root dependencies; `.dockerignore` excludes virtualenvs, test suites, `.git`, and `.env` files.
 
-### Step 1: Database Setup (Supabase)
-1. In Supabase Dashboard, create or link your project.
-2. Apply the versioned migration:
+### ML Artifact Delivery & Fallback Behavior
+The Random Forest model file (`evacuation_time_rf.joblib`, ~9.5 MB) is gitignored to keep the repository lightweight.
+
+1. **Pre-Build Staging (Recommended)**:
+   Prior to packaging the container image, run the staging script to copy the model from `ai/prediction/artifacts` to `backend/artifacts`:
    ```bash
-   supabase db push
-   # or execute supabase/migrations/202610090001_initial_campus_schema.sql via SQL Editor
+   python backend/scripts/prepare_artifacts.py
    ```
-3. Seed the synthetic demo campus:
-   ```bash
-   # Execute supabase/seed.sql via SQL Editor
-   ```
-4. Copy the **Transaction Pooler** connection string (port 6543) from **Database Settings → Connection Pooling**.
-
-### Step 2: Backend Container Deployment (Railway / Render / Cloud Run)
-1. Create a new service from the repository.
-2. Set the build type to **Dockerfile** (pointing to `backend/Dockerfile`).
-3. Set environment variables:
-   - `ENVIRONMENT=production`
-   - `CORS_ORIGINS=https://your-frontend-app.vercel.app` (or temporary wildcard during initial setup)
-   - `SUPABASE_DB_URL=<transaction-pooler-uri>`
-   - `EVACUATION_MODEL_PATH=/app/artifacts/evacuation_time_rf.joblib`
-4. Ensure the model artifact `evacuation_time_rf.joblib` is baked into the image or mounted via a persistent volume / pre-deploy script.
-5. Deploy and observe container health check logs.
-
-### Step 3: Backend Health Verification
-Verify backend operational status before connecting the frontend:
-- `GET https://<your-backend-domain>/api/health` $\to$ Returns `{"status":"ok","service":"campus-safe-api","version":"0.1.0"}`
-- `GET https://<your-backend-domain>/api/health/database` $\to$ Returns `{"status":"ok","database":"supabase"}`
-- `GET https://<your-backend-domain>/api/info` $\to$ Returns project info metadata.
-- `GET https://<your-backend-domain>/api/campuses/10000000-0000-4000-8000-000000000001/graph` $\to$ Returns graph summary counts.
-
-### Step 4: Frontend Deployment (Vercel)
-1. In Vercel, import the repository.
-2. Set **Root Directory** to `frontend/`.
-3. Set **Framework Preset** to `Next.js`.
-4. Configure environment variable:
-   - `NEXT_PUBLIC_API_URL=https://<your-backend-domain>`
-5. Trigger deployment. The Next.js production build will compile and statically optimize all pages.
-6. Copy the assigned Vercel production domain (e.g. `https://campus-safe.vercel.app`).
-
-### Step 5: Update Backend CORS
-Update the backend container environment variable:
-- `CORS_ORIGINS=https://campus-safe.vercel.app`
-Restart or redeploy the backend service so browser preflight `OPTIONS` requests succeed.
-
----
-
-## ML Model Artifact Availability
-
-The Random Forest model file (`evacuation_time_rf.joblib`) is approximately 9.5 MB and is excluded from Git tracking via `.gitignore`.
-
-For production deployment:
-1. **Container Baking (Recommended)**: Build the container image in an environment where `ai/prediction/artifacts/evacuation_time_rf.joblib` is present, copying it to `/app/artifacts/evacuation_time_rf.joblib`.
-2. **Pre-build Generation**: If building in a fresh CI environment without pre-existing artifacts, run the deterministic experiment script prior to image packaging:
+2. **Deterministic Regeneration (CI/CD)**:
+   In a headless CI runner where local artifacts are absent, regenerate the artifact deterministically:
    ```bash
    python ai/prediction/train_experiment.py
+   python backend/scripts/prepare_artifacts.py
    ```
-3. **Volume Mount**: Mount a volume containing the model artifact and set `EVACUATION_MODEL_PATH` to the mounted file path.
+3. **Graceful Fallback**:
+   The `backend/artifacts/.gitkeep` file ensures the build context never errors if the `.joblib` binary is missing. If the artifact is omitted:
+   - All graph routing endpoints (Dijkstra, A*, Emergency Avoidance, Exit Selection, Congestion) function completely normally.
+   - Only the ML route-time prediction endpoint (`POST /api/campuses/{id}/routes/predicted-time`) returns `503 Service Unavailable: Travel-time prediction model is unavailable.` without crashing the application.
 
 ---
 
-## Health Check and Monitoring
+## 4. Supabase PostgreSQL Migration Procedure
 
-- **Application Health**: `GET /api/health` responds independently of database connectivity.
-- **Database Health**: `GET /api/health/database` verifies PostgreSQL connectivity and returns sanitized status (`ok`, `not_configured`, or `error`).
-- **Interactive Map**: In the frontend, the campus visualizer renders schematic topology offline and displays clear error notifications if backend APIs are temporarily unreachable.
+### Safe, Non-Destructive Schema Updates
+The database migrations under `supabase/migrations/` are strictly additive and idempotent:
+1. `202610090001_initial_campus_schema.sql` (Tables, constraints, indexes, triggers, and RLS enable statements)
+2. `202610110001_add_walkway_academic_edge.sql` (Authoritative walkway edge addition)
 
----
+> [!CAUTION]
+> **Never run `supabase db reset` against a live or shared project.**
+> `db reset` drops all tables and cascades data loss. Always use non-destructive migration commands.
 
-## Local Development and Rollback
+### Migration Execution
 
-### Running Locally
-```powershell
-# Backend
-cd backend
-.venv\Scripts\activate
-uvicorn app.main:app --reload --port 8000
+#### Option A: Supabase CLI (Recommended)
+```bash
+# Link repository to existing project
+supabase link --project-ref <your-project-ref>
 
-# Frontend
-cd frontend
-npm run dev
+# Push pending idempotent migrations
+supabase db push
 ```
 
-### Rollbacks
-- **Frontend**: In the Vercel dashboard, navigate to **Deployments**, locate the last healthy deployment, and select **Promote to Production**.
-- **Backend**: In your container host dashboard (e.g. Railway/Render), select the previous image tag or rollback to the prior release.
+#### Option B: Supabase Dashboard SQL Editor
+1. Open the [Supabase Dashboard](https://supabase.com/dashboard).
+2. Navigate to **SQL Editor**.
+3. Open `supabase/migrations/202610090001_initial_campus_schema.sql` and run the script.
+4. Open `supabase/migrations/202610110001_add_walkway_academic_edge.sql` and run the script.
+
+#### Optional Demo Topology Seeding
+To populate the 21-node synthetic demonstration campus:
+```bash
+psql "$env:SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/seed.sql
+```
+*Note: `supabase/seed.sql` uses `ON CONFLICT DO NOTHING` and will not overwrite modified rows.*
+
+---
+
+## 5. Production Environment Checklist
+
+### A. Vercel Frontend Configuration (Project Settings → Environment Variables)
+
+| Variable Name | Type | Scope | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | Public (Client) | Production, Preview | Fully-qualified HTTPS URL of the deployed FastAPI backend (e.g. `https://api.campus-safe.example.com`). Required for build. |
+| `NEXT_PUBLIC_CAMPUS_ID` | Public (Client) | Production, Preview | (Optional) Campus UUID. Defaults to demo campus `10000000-0000-4000-8000-000000000001`. |
+
+### B. Backend Hosting Configuration (Railway / Render / Cloud Run / ECS)
+
+| Variable Name | Type | Scope | Description |
+|---|---|---|---|
+| `ENVIRONMENT` | String | Container | Set to `production`. |
+| `PORT` | Number | Container | Injected automatically by host (default `8000`). |
+| `CORS_ORIGINS` | Secret/Config | Container | Comma-delimited list of allowed frontend domains without trailing slash (e.g. `https://campus-safe.vercel.app`). Wildcards are rejected. |
+| `SUPABASE_DB_URL` | **Secret** | Backend Only | PostgreSQL connection URI from Supabase (**Transaction Pooler, port 6543**). Example: `postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres`. |
+| `SUPABASE_URL` | Config | Backend Only | (Optional) Supabase Project API URL (`https://[ref].supabase.co`). |
+| `SUPABASE_PUBLISHABLE_KEY` | Public Key | Backend Only | (Optional) Supabase anonymous/publishable key. |
+| `SUPABASE_SECRET_KEY` | **Secret** | Backend Only | (Optional) Supabase service-role secret key. |
+| `EVACUATION_MODEL_PATH` | Path | Container | (Optional) Path to model artifact. Defaults to `/app/artifacts/evacuation_time_rf.joblib`. |
+
+### C. Local Development Configuration (`.env`)
+
+| Variable Name | Value | Purpose |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Points frontend to local backend. |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001` | Allows local Next.js ports. |
+| `ENVIRONMENT` | `development` | Enables local debug logs. |
+| `SUPABASE_DB_URL` | Direct or pooler URI | Used for local testing against Supabase. |
+
+---
+
+## 6. Post-Deployment Verification & Smoke Tests
+
+Execute these validation commands against the live deployment:
+
+### 1. Backend Process Liveness Check
+```bash
+curl -f https://<your-backend-domain>/api/health
+```
+**Expected Response**: `200 OK`
+```json
+{"status":"ok","service":"campus-safe-api","version":"0.1.0"}
+```
+
+### 2. Database Connectivity Readiness Check
+```bash
+curl -f https://<your-backend-domain>/api/health/database
+```
+**Expected Response**: `200 OK`
+```json
+{"status":"ok","database":"supabase"}
+```
+
+### 3. Public Metadata Probe
+```bash
+curl -f https://<your-backend-domain>/api/info
+```
+**Expected Response**: `200 OK`
+```json
+{"project":"CAMPUS-SAFE","version":"0.1.0","environment":"production","api_status":"operational"}
+```
+
+### 4. Graph Topology Retrieval
+```bash
+curl -f https://<your-backend-domain>/api/campuses/10000000-0000-4000-8000-000000000001/graph
+```
+**Expected Response**: `200 OK` with `node_count >= 21` and `edge_count >= 21`.
+
+### 5. Dynamic Evacuation Route Calculation
+```bash
+curl -X POST https://<your-backend-domain>/api/campuses/10000000-0000-4000-8000-000000000001/routes/evacuation \
+  -H "Content-Type: application/json" \
+  -d '{"start_node_id": "20000000-0000-4000-8000-000000000009", "blocked_edge_ids": []}'
+```
+**Expected Response**: `200 OK` with `status: "route_found"`, `selected_exit_name: "Administration First Floor Fire Escape"`, and `total_distance_m: 17.0`.
+
+### 6. Frontend Browser Smoke Test
+1. Navigate to `https://<your-vercel-domain>`.
+2. Verify the top banner displays: `Authoritative Schematic Topology & Model Governance`.
+3. Verify the SVG campus map renders nodes, edges, and buildings.
+4. Select *Hazard Simulation: 1st Floor Fire Escape Blocked*. Click **Calculate Route**.
+5. Verify physical distance updates to **33.0 m** (*Administration West Emergency Exit*).
+6. Select *Hazard Simulation: All Administration Exits Blocked*. Click **Calculate Route**.
+7. Verify distance updates to **—** and status badge displays **NO EXIT REACHABLE**.
+
+---
+
+## 7. Rollback Procedures
+
+### Frontend (Vercel)
+1. Open the **Deployments** tab in the Vercel project dashboard.
+2. Locate the previous successful deployment.
+3. Click the three dots (`...`) and select **Instant Rollback** (or **Promote to Production**).
+4. Vercel routes traffic immediately to the previous immutable deployment bundle.
+
+### Backend (Container Platform)
+1. In your container dashboard (Railway / Render / Cloud Run / AWS ECS), navigate to **Deployments** or **Revisions**.
+2. Select the prior stable image tag or revision.
+3. Click **Rollback / Redeploy Revision**.
+4. The load balancer shifts traffic to healthy containers running the prior build.
+
+### Database (Supabase)
+Because migrations are non-destructive and idempotent (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING`), application rollbacks remain compatible with the database schema without rolling back DDL.
+
+---
+
+## 8. Deployment Prerequisites & Blockers
+
+| Item | Status | Action Required |
+|---|---|---|
+| **Vercel Account & Import** | Pending User | User must import repository and set Root Directory to `frontend`. |
+| **Backend Container Host** | Pending User | User must provision Railway, Render, or Cloud Run service pointing to `backend/Dockerfile`. |
+| **Environment Variables** | Pending User | User must set `NEXT_PUBLIC_API_URL`, `SUPABASE_DB_URL`, and `CORS_ORIGINS` in respective dashboards. |
+| **ML Model Artifact** | Configured | Staged via `prepare_artifacts.py` or generated via `train_experiment.py`. Graceful fallback active. |
+| **Authentication on Mutations** | Roadmap | Read-only routing is production-ready; mutation APIs will require RBAC in subsequent phases. |

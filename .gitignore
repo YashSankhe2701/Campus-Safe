@@ -69,5 +69,6 @@ coverage.xml
 
 # ---------- Local ML experiment and deployment artifacts ----------
 ai/prediction/artifacts/
-backend/artifacts/
+backend/artifacts/*
+!backend/artifacts/.gitkeep
 *.joblib

@@ -12,6 +12,12 @@ class ShortestRouteRequest(BaseModel):
 
     start_node_id: UUID
     destination_node_id: UUID
+    blocked_edge_ids: list[UUID] = Field(default_factory=list)
+    blocked_node_ids: list[UUID] = Field(default_factory=list)
+
+
+class EmergencyAwareRouteRequest(ShortestRouteRequest):
+    """Emergency route request with optional dynamic test blockages."""
 
 
 class RouteStep(BaseModel):

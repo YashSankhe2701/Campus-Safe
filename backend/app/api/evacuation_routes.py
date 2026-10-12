@@ -38,6 +38,8 @@ async def select_evacuation_exit(
         return await load_campus_exit_selection(
             str(campus_id),
             request.start_node_id,
+            blocked_edge_ids=request.blocked_edge_ids,
+            blocked_node_ids=request.blocked_node_ids,
         )
     except CampusNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Campus not found.") from exc

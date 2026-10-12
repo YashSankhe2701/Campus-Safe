@@ -47,6 +47,8 @@ export interface RouteStep {
 export interface ShortestRouteRequest {
   start_node_id: string;
   destination_node_id: string;
+  blocked_edge_ids?: string[];
+  blocked_node_ids?: string[];
 }
 
 export interface ShortestRouteResponse {
@@ -56,6 +58,11 @@ export interface ShortestRouteResponse {
   path_node_ids: string[];
   total_distance_m: number;
   steps: RouteStep[];
+}
+
+export interface EmergencyAwareRouteRequest extends ShortestRouteRequest {
+  blocked_edge_ids?: string[];
+  blocked_node_ids?: string[];
 }
 
 export interface EmergencyAwareRouteResponse extends ShortestRouteResponse {
@@ -68,6 +75,8 @@ export interface EmergencyAwareRouteResponse extends ShortestRouteResponse {
 
 export interface ExitSelectionRequest {
   start_node_id: string;
+  blocked_edge_ids?: string[];
+  blocked_node_ids?: string[];
 }
 
 export interface EvaluatedExit {
@@ -93,6 +102,8 @@ export interface ExitSelectionResponse {
   steps: RouteStep[];
   active_emergency_ids: string[];
   evaluated_exits: EvaluatedExit[];
+  blocked_edge_count?: number;
+  blocked_node_count?: number;
   selection_objective: string;
   safety_notice: string;
 }

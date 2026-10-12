@@ -15,7 +15,11 @@ from app.database.exit_repository import ExitDataError, PostgresExitRepository
 from app.schemas.exit_selection import EvaluatedExit, ExitSelectionResponse
 from app.services.emergency_routing_service import calculate_emergency_aware_route
 from app.services.graph_service import load_campus_graph
-from app.services.routing_service import NoRouteFoundError, RouteNodeNotFoundError
+from app.services.routing_service import (
+    NoRouteFoundError,
+    RouteNodeNotFoundError,
+    calculate_shortest_route,
+)
 
 
 class ExitRepository(Protocol):
@@ -38,6 +42,9 @@ def select_campus_exit(
     conditions: EmergencyConditionSnapshot,
     start_node_id: UUID | str,
     exits: list[dict[str, Any]],
+    *,
+    blocked_edge_ids: list[UUID | str] | None = None,
+    blocked_node_ids: list[UUID | str] | None = None,
 ) -> ExitSelectionResponse:
     """Evaluate exits, then choose the lowest-distance reachable active exit."""
     campus_id = _exit_uuid(graph.graph.get("campus_id"), "campus_id")
@@ -45,6 +52,29 @@ def select_campus_exit(
     start = str(start_id)
     if start not in graph:
         raise RouteNodeNotFoundError("Start node was not found in this campus.")
+
+    dynamic_blocked_nodes = tuple(str(UUID(str(n))) for n in (blocked_node_ids or []))
+    dynamic_blocked_edges = tuple(str(UUID(str(e))) for e in (blocked_edge_ids or []))
+    if dynamic_blocked_nodes:
+        loaded_nodes = set(graph.nodes)
+        for node in dynamic_blocked_nodes:
+            if node not in loaded_nodes:
+                raise RouteNodeNotFoundError(f"Blocked node {node} was not found in this campus.")
+    if dynamic_blocked_edges:
+        loaded_edge_ids = {
+            str(attr.get("id"))
+            for _, _, _, attr in graph.edges(keys=True, data=True)
+        }
+        for edge in dynamic_blocked_edges:
+            if edge not in loaded_edge_ids:
+                raise RouteNodeNotFoundError(f"Blocked edge {edge} was not found in this campus.")
+
+    if dynamic_blocked_nodes or dynamic_blocked_edges:
+        conditions = EmergencyConditionSnapshot(
+            active_emergency_ids=conditions.active_emergency_ids,
+            blocked_node_ids=tuple(sorted(set(conditions.blocked_node_ids) | set(dynamic_blocked_nodes))),
+            blocked_edge_ids=tuple(sorted(set(conditions.blocked_edge_ids) | set(dynamic_blocked_edges))),
+        )
 
     blocked_nodes = set(conditions.blocked_node_ids)
     if start in blocked_nodes:
@@ -102,6 +132,15 @@ def select_campus_exit(
                 node_id,
             )
         except NoRouteFoundError:
+            # Distinguish whether path was cut off by active blockages vs topologically unreachable
+            is_blocked_by_incident = False
+            if conditions.blocked_node_ids or conditions.blocked_edge_ids:
+                try:
+                    calculate_shortest_route(graph, start_id, node_id)
+                    is_blocked_by_incident = True
+                except NoRouteFoundError:
+                    is_blocked_by_incident = False
+
             evaluated.append(
                 EvaluatedExit(
                     exit_id=exit_id,
@@ -109,7 +148,7 @@ def select_campus_exit(
                     name=name,
                     exit_type=exit_type,
                     reachable=False,
-                    exclusion_reason="unreachable",
+                    exclusion_reason="blocked" if is_blocked_by_incident else "unreachable",
                 )
             )
             continue
@@ -140,6 +179,8 @@ def select_campus_exit(
             steps=[],
             active_emergency_ids=[UUID(value) for value in conditions.active_emergency_ids],
             evaluated_exits=evaluated,
+            blocked_edge_count=len(conditions.blocked_edge_ids),
+            blocked_node_count=len(conditions.blocked_node_ids),
         )
 
     _, selected_exit, route = min(
@@ -159,6 +200,8 @@ def select_campus_exit(
         steps=route.steps,
         active_emergency_ids=[UUID(value) for value in conditions.active_emergency_ids],
         evaluated_exits=evaluated,
+        blocked_edge_count=len(conditions.blocked_edge_ids),
+        blocked_node_count=len(conditions.blocked_node_ids),
     )
 
 
@@ -166,6 +209,8 @@ async def load_campus_exit_selection(
     campus_id: str,
     start_node_id: UUID | str,
     *,
+    blocked_edge_ids: list[UUID | str] | None = None,
+    blocked_node_ids: list[UUID | str] | None = None,
     exit_repository: ExitRepository | None = None,
     conditions_repository: ConditionsRepository | None = None,
 ) -> ExitSelectionResponse:
@@ -178,7 +223,14 @@ async def load_campus_exit_selection(
         asyncio.to_thread(exits_repo.load_exits, normalized_campus_id),
         asyncio.to_thread(conditions_repo.load_conditions, normalized_campus_id),
     )
-    return select_campus_exit(graph, conditions, start_node_id, exits)
+    return select_campus_exit(
+        graph,
+        conditions,
+        start_node_id,
+        exits,
+        blocked_edge_ids=blocked_edge_ids,
+        blocked_node_ids=blocked_node_ids,
+    )
 
 
 __all__ = ["ExitDataError", "load_campus_exit_selection", "select_campus_exit"]

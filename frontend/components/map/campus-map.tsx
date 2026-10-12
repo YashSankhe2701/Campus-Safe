@@ -19,6 +19,8 @@ import {
   getEvacuationRoute,
   getCongestionRoute,
   predictRouteTime,
+  parseRoutingError,
+  RouteErrorInfo,
 } from "@/lib/api";
 import {
   RoutingStrategy,
@@ -87,6 +89,11 @@ export function CampusMap() {
   const [walkingSpeed, setWalkingSpeed] = useState<number>(1.2);
   const [scenarioPreset, setScenarioPreset] = useState<"none" | "moderate" | "heavy">("none");
 
+  // Dynamic hazard simulation scenario parameters
+  const [hazardPreset, setHazardPreset] = useState<
+    "none" | "fire_escape" | "ground_exit" | "all_admin_exits"
+  >("none");
+
   // Zoom and pan navigation state
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -106,7 +113,7 @@ export function CampusMap() {
 
   // Route calculation execution states
   const [routeLoading, setRouteLoading] = useState<boolean>(false);
-  const [routeError, setRouteError] = useState<string | null>(null);
+  const [routeError, setRouteError] = useState<RouteErrorInfo | null>(null);
 
   // Results
   const [shortestResult, setShortestResult] = useState<ShortestRouteResponse | null>(null);
@@ -114,6 +121,9 @@ export function CampusMap() {
   const [evacuationResult, setEvacuationResult] = useState<ExitSelectionResponse | null>(null);
   const [congestionResult, setCongestionResult] = useState<CongestionRouteResponse | null>(null);
   const [predictionResult, setPredictionResult] = useState<RouteTimePredictionResponse | null>(null);
+
+  // Active in-flight request tracker to prevent stale responses from overwriting newer scenarios
+  const activeRequestIdRef = React.useRef<number>(0);
 
   // Load campus graph metadata on mount / campus change
   const fetchGraphMetadata = useCallback(async () => {
@@ -136,40 +146,46 @@ export function CampusMap() {
 
   // Active path node IDs from current result
   const activePathNodeIds = useMemo<string[]>(() => {
-    if (strategy === "evacuation" && evacuationResult) {
-      return evacuationResult.path_node_ids || [];
+    if (strategy === "evacuation") {
+      if (evacuationResult?.status === "route_found") {
+        return evacuationResult.path_node_ids || [];
+      }
+      return [];
     }
-    if (strategy === "emergency" && emergencyResult) {
-      return emergencyResult.path_node_ids || [];
+    if (strategy === "emergency") {
+      return emergencyResult?.path_node_ids || [];
     }
-    if (strategy === "congestion" && congestionResult) {
-      return congestionResult.path_node_ids || [];
+    if (strategy === "congestion") {
+      return congestionResult?.path_node_ids || [];
     }
-    if (strategy === "prediction" && predictionResult) {
-      return predictionResult.path_node_ids || [];
+    if (strategy === "prediction") {
+      return predictionResult?.path_node_ids || [];
     }
-    if (shortestResult) {
-      return shortestResult.path_node_ids || [];
+    if (strategy === "shortest" || strategy === "astar") {
+      return shortestResult?.path_node_ids || [];
     }
     return [];
   }, [strategy, shortestResult, emergencyResult, evacuationResult, congestionResult, predictionResult]);
 
   // Active path edge IDs
   const activePathEdgeIds = useMemo<string[]>(() => {
-    if (strategy === "evacuation" && evacuationResult) {
-      return evacuationResult.steps.map((s) => s.edge_id);
+    if (strategy === "evacuation") {
+      if (evacuationResult?.status === "route_found") {
+        return evacuationResult.steps.map((s) => s.edge_id);
+      }
+      return [];
     }
-    if (strategy === "emergency" && emergencyResult) {
-      return emergencyResult.steps.map((s) => s.edge_id);
+    if (strategy === "emergency") {
+      return emergencyResult ? emergencyResult.steps.map((s) => s.edge_id) : [];
     }
-    if (strategy === "congestion" && congestionResult) {
-      return congestionResult.steps.map((s) => s.edge_id);
+    if (strategy === "congestion") {
+      return congestionResult ? congestionResult.steps.map((s) => s.edge_id) : [];
     }
-    if (strategy === "prediction" && predictionResult) {
-      return predictionResult.edge_ids || [];
+    if (strategy === "prediction") {
+      return predictionResult?.edge_ids || [];
     }
-    if (shortestResult) {
-      return shortestResult.steps.map((s) => s.edge_id);
+    if (strategy === "shortest" || strategy === "astar") {
+      return shortestResult ? shortestResult.steps.map((s) => s.edge_id) : [];
     }
     return [];
   }, [strategy, shortestResult, emergencyResult, evacuationResult, congestionResult, predictionResult]);
@@ -213,54 +229,120 @@ export function CampusMap() {
     return [];
   }, [scenarioPreset]);
 
+  // Generate simulated blocked edges based on explicit test scenario
+  const simulatedBlockedEdgeIds = useMemo<string[]>(() => {
+    if (hazardPreset === "none") return [];
+    if (hazardPreset === "fire_escape") {
+      return ["30000000-0000-4000-8000-000000000009"]; // ADM-1-COR -> ADM-1-EXIT (Fire escape)
+    }
+    if (hazardPreset === "ground_exit") {
+      return ["30000000-0000-4000-8000-000000000005"]; // ADM-G-JCT -> ADM-G-EXIT
+    }
+    if (hazardPreset === "all_admin_exits") {
+      return [
+        "30000000-0000-4000-8000-000000000009",
+        "30000000-0000-4000-8000-000000000005",
+      ];
+    }
+    return [];
+  }, [hazardPreset]);
+
   // Execute Route Request
-  const handleCalculateRoute = async () => {
+  const handleCalculateRoute = async (
+    overrideHazardPreset?: "none" | "fire_escape" | "ground_exit" | "all_admin_exits",
+    overrideStrategy?: RoutingStrategy,
+    overrideStartNodeId?: string
+  ) => {
+    const requestId = ++activeRequestIdRef.current;
     setRouteLoading(true);
     setRouteError(null);
-    setShortestResult(null);
-    setEmergencyResult(null);
-    setEvacuationResult(null);
-    setCongestionResult(null);
-    setPredictionResult(null);
+
+    const activeStrategy = overrideStrategy ?? strategy;
+    const activeStartNode = overrideStartNodeId ?? startNodeId;
+    const activePreset = overrideHazardPreset ?? hazardPreset;
+
+    // Reset results for non-active strategies to prevent stale data bleed
+    if (activeStrategy === "evacuation") {
+      setShortestResult(null);
+      setEmergencyResult(null);
+      setCongestionResult(null);
+      setPredictionResult(null);
+      setEvacuationResult(null);
+    } else if (activeStrategy === "emergency") {
+      setShortestResult(null);
+      setEvacuationResult(null);
+      setCongestionResult(null);
+      setPredictionResult(null);
+      setEmergencyResult(null);
+    } else {
+      setEvacuationResult(null);
+      setEmergencyResult(null);
+      setCongestionResult(null);
+      setPredictionResult(null);
+      setShortestResult(null);
+    }
+
+    const blockedEdges =
+      activePreset === "fire_escape"
+        ? ["30000000-0000-4000-8000-000000000009"]
+        : activePreset === "ground_exit"
+        ? ["30000000-0000-4000-8000-000000000005"]
+        : activePreset === "all_admin_exits"
+        ? [
+            "30000000-0000-4000-8000-000000000009",
+            "30000000-0000-4000-8000-000000000005",
+          ]
+        : [];
 
     try {
-      if (strategy === "shortest") {
+      if (activeStrategy === "shortest") {
         const res = await getShortestRoute(campusId, {
-          start_node_id: startNodeId,
+          start_node_id: activeStartNode,
           destination_node_id: destinationNodeId,
+          blocked_edge_ids: blockedEdges,
         });
+        if (requestId !== activeRequestIdRef.current) return;
         setShortestResult(res);
-      } else if (strategy === "astar") {
+      } else if (activeStrategy === "astar") {
         const res = await getAstarRoute(campusId, {
-          start_node_id: startNodeId,
+          start_node_id: activeStartNode,
           destination_node_id: destinationNodeId,
+          blocked_edge_ids: blockedEdges,
         });
+        if (requestId !== activeRequestIdRef.current) return;
         setShortestResult(res);
-      } else if (strategy === "emergency") {
+      } else if (activeStrategy === "emergency") {
         const res = await getEmergencyAwareRoute(campusId, {
-          start_node_id: startNodeId,
+          start_node_id: activeStartNode,
           destination_node_id: destinationNodeId,
+          blocked_edge_ids: blockedEdges,
         });
+        if (requestId !== activeRequestIdRef.current) return;
         setEmergencyResult(res);
-      } else if (strategy === "evacuation") {
+      } else if (activeStrategy === "evacuation") {
         const res = await getEvacuationRoute(campusId, {
-          start_node_id: startNodeId,
+          start_node_id: activeStartNode,
+          blocked_edge_ids: blockedEdges,
         });
+        if (requestId !== activeRequestIdRef.current) return;
         setEvacuationResult(res);
-      } else if (strategy === "congestion") {
+      } else if (activeStrategy === "congestion") {
         const res = await getCongestionRoute(campusId, {
-          start_node_id: startNodeId,
+          start_node_id: activeStartNode,
           destination_node_id: destinationNodeId,
           base_walking_speed_mps: walkingSpeed,
           edge_scenarios: edgeScenarios,
         });
+        if (requestId !== activeRequestIdRef.current) return;
         setCongestionResult(res);
-      } else if (strategy === "prediction") {
+      } else if (activeStrategy === "prediction") {
         // Step 1: obtain traversable path via baseline shortest route first
         const baseRoute = await getShortestRoute(campusId, {
-          start_node_id: startNodeId,
+          start_node_id: activeStartNode,
           destination_node_id: destinationNodeId,
+          blocked_edge_ids: blockedEdges,
         });
+        if (requestId !== activeRequestIdRef.current) return;
         setShortestResult(baseRoute);
 
         // Step 2: predict travel time along this route
@@ -271,13 +353,17 @@ export function CampusMap() {
           base_walking_speed_mps: walkingSpeed,
           edge_scenarios: edgeScenarios,
         });
+        if (requestId !== activeRequestIdRef.current) return;
         setPredictionResult(predRes);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Routing request failed";
-      setRouteError(msg);
+      if (requestId !== activeRequestIdRef.current) return;
+      const errorInfo = parseRoutingError(err);
+      setRouteError(errorInfo);
     } finally {
-      setRouteLoading(false);
+      if (requestId === activeRequestIdRef.current) {
+        setRouteLoading(false);
+      }
     }
   };
 
@@ -289,6 +375,9 @@ export function CampusMap() {
 
   const handleSetStart = (id: string) => {
     setStartNodeId(id);
+    if (strategy === "evacuation") {
+      handleCalculateRoute(hazardPreset, "evacuation", id);
+    }
   };
 
   const handleSetDestination = (id: string) => {
@@ -296,6 +385,7 @@ export function CampusMap() {
   };
 
   const handleClearRoute = () => {
+    activeRequestIdRef.current++;
     setShortestResult(null);
     setEmergencyResult(null);
     setEvacuationResult(null);
@@ -367,15 +457,13 @@ export function CampusMap() {
   return (
     <div className="flex flex-col gap-6">
       {/* Top Banner & Status */}
-      <div className="flex flex-col gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-300">
-        <div className="flex items-center gap-2 font-medium text-amber-200">
-          <Info className="h-4 w-4 shrink-0 text-amber-400" />
-          <span>Schematic Demo Campus Map</span>
+      <div className="flex flex-col gap-1.5 rounded-xl border border-[#DFDFD4] bg-[#FFFFFF] p-4 text-xs text-[#1A1D14] shadow-xs">
+        <div className="flex items-center gap-2 font-semibold text-[#1A1D14]">
+          <Info className="h-4 w-4 shrink-0 text-[#B77A26]" />
+          <span>Authoritative Schematic Topology & Model Governance</span>
         </div>
-        <p className="text-muted-foreground">
-          Coordinates are local illustrative values from repository seed data, not geodetically calibrated
-          measurements. Minimum-distance and estimated travel-time routes do not represent validated real-world
-          safety guarantees.
+        <p className="leading-relaxed text-[#686B60]">
+          Visualized coordinates are local schematic representations from repository seed data. Physical routing uses exact graph weights. Machine-learning travel-time predictions are derived from synthetic training scenarios and are not calibrated against real-world evacuation measurements.
         </p>
       </div>
 
@@ -383,27 +471,27 @@ export function CampusMap() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* MAP VISUALIZATION CANVAS (8 cols) */}
         <div className="flex flex-col gap-4 lg:col-span-8">
-          <Card className="overflow-hidden border border-border/50 bg-card/40 backdrop-blur-md">
-            <CardHeader className="flex flex-row items-center justify-between border-b border-border/40 pb-3 pt-4">
+          <Card className="overflow-hidden border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-[#DFDFD4] pb-3 pt-4 px-5">
               <div>
-                <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                  <Navigation className="h-4 w-4 text-emerald-400" />
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold text-[#1A1D14]">
+                  <Navigation className="h-4 w-4 text-[#57603A]" />
                   Campus Topology Visualizer
                 </CardTitle>
-                <CardDescription className="text-xs">
+                <CardDescription className="text-xs text-[#686B60]">
                   {DEMO_CAMPUS_NAME} · {DEMO_NODES.length} Nodes · {DEMO_EDGES.length} Stored Edges · 3 Exits · 1 Assembly Point
                 </CardDescription>
               </div>
 
               {/* Floor Filters */}
-              <div className="flex items-center gap-1 rounded-lg border border-border/40 bg-background/50 p-1">
+              <div className="flex items-center gap-1 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-1">
                 <button
                   type="button"
                   onClick={() => setFloorFilter("all")}
-                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
                     floorFilter === "all"
-                      ? "bg-emerald-500 text-white"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-[#57603A] text-white shadow-xs"
+                      : "text-[#46483E] hover:text-[#1A1D14] hover:bg-[#EEEDE5]"
                   }`}
                 >
                   All Floors
@@ -411,10 +499,10 @@ export function CampusMap() {
                 <button
                   type="button"
                   onClick={() => setFloorFilter("ground")}
-                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
                     floorFilter === "ground"
-                      ? "bg-emerald-500 text-white"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-[#57603A] text-white shadow-xs"
+                      : "text-[#46483E] hover:text-[#1A1D14] hover:bg-[#EEEDE5]"
                   }`}
                 >
                   Ground Floor
@@ -422,10 +510,10 @@ export function CampusMap() {
                 <button
                   type="button"
                   onClick={() => setFloorFilter("first")}
-                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
                     floorFilter === "first"
-                      ? "bg-emerald-500 text-white"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-[#57603A] text-white shadow-xs"
+                      : "text-[#46483E] hover:text-[#1A1D14] hover:bg-[#EEEDE5]"
                   }`}
                 >
                   First Floor
@@ -435,36 +523,36 @@ export function CampusMap() {
 
             <CardContent className="p-4">
               {/* SVG Canvas Area with Extended Viewing Space & Zoom/Pan */}
-              <div className="relative h-[490px] sm:h-[550px] md:h-[610px] w-full overflow-hidden rounded-xl border border-border/30 bg-slate-950/80 shadow-inner select-none">
+              <div className="relative h-[490px] sm:h-[550px] md:h-[610px] w-full overflow-hidden rounded-xl border border-[#DFDFD4] bg-[#F5F4EE] shadow-inner select-none">
                 {/* Floating Zoom & Pan Controls */}
-                <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border/50 bg-slate-900/85 p-1 backdrop-blur-md shadow-lg">
+                <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-[#DFDFD4] bg-[#FFFFFF]/90 p-1 backdrop-blur-md shadow-xs">
                   <button
                     type="button"
                     onClick={handleZoomIn}
                     aria-label="Zoom in"
-                    className="rounded p-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                    className="rounded p-1.5 text-[#46483E] hover:bg-[#EEEDE5] hover:text-[#1A1D14] transition-colors"
                     title="Zoom In (+)"
                   >
                     <ZoomIn className="h-4 w-4" />
                   </button>
-                  <span className="px-1 text-[11px] font-mono text-slate-400 select-none min-w-[36px] text-center">
+                  <span className="px-1 text-[11px] font-mono text-[#686B60] select-none min-w-[36px] text-center">
                     {Math.round(zoom * 100)}%
                   </span>
                   <button
                     type="button"
                     onClick={handleZoomOut}
                     aria-label="Zoom out"
-                    className="rounded p-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                    className="rounded p-1.5 text-[#46483E] hover:bg-[#EEEDE5] hover:text-[#1A1D14] transition-colors"
                     title="Zoom Out (-)"
                   >
                     <ZoomOut className="h-4 w-4" />
                   </button>
-                  <div className="h-4 w-[1px] bg-slate-700 mx-0.5" />
+                  <div className="h-4 w-[1px] bg-[#DFDFD4] mx-0.5" />
                   <button
                     type="button"
                     onClick={handleResetZoomPan}
                     aria-label="Reset view"
-                    className="rounded p-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                    className="rounded p-1.5 text-[#46483E] hover:bg-[#EEEDE5] hover:text-[#1A1D14] transition-colors"
                     title="Reset View"
                   >
                     <RotateCcw className="h-4 w-4" />
@@ -472,7 +560,7 @@ export function CampusMap() {
                 </div>
 
                 {/* Navigation Hint */}
-                <div className="absolute bottom-2 left-3 pointer-events-none text-[10px] text-slate-500 font-mono z-10">
+                <div className="absolute bottom-2 left-3 pointer-events-none text-[10px] text-[#686B60] font-mono z-10">
                   Scroll / drag to explore · Click nodes to inspect
                 </div>
 
@@ -513,6 +601,20 @@ export function CampusMap() {
                   }}
                 >
                   <defs>
+                    {/* Architectural CAD Blueprint Grid Pattern */}
+                    <pattern
+                      id="campus-cad-grid"
+                      width="4"
+                      height="4"
+                      patternUnits="userSpaceOnUse"
+                    >
+                      <path
+                        d="M 4 0 L 0 0 0 4"
+                        fill="none"
+                        stroke="#E2E4D6"
+                        strokeWidth="0.08"
+                      />
+                    </pattern>
                     {/* Marker for directed edges (outdoor paths) */}
                     <marker
                       id="directed-arrow"
@@ -523,7 +625,7 @@ export function CampusMap() {
                       markerHeight="4"
                       orient="auto-start-reverse"
                     >
-                      <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8" />
+                      <path d="M 0 1 L 9 5 L 0 9 z" fill="#57603A" />
                     </marker>
                     {/* Marker for route path arrows */}
                     <marker
@@ -535,11 +637,11 @@ export function CampusMap() {
                       markerHeight="5"
                       orient="auto-start-reverse"
                     >
-                      <path d="M 0 1 L 9 5 L 0 9 z" fill="#10b981" />
+                      <path d="M 0 1 L 9 5 L 0 9 z" fill="#3C6849" />
                     </marker>
-                    {/* Glow filter for route line */}
+                    {/* Subtle route glow filter */}
                     <filter id="route-glow" x="-20%" y="-20%" width="140%" height="140%">
-                      <feGaussianBlur stdDeviation="0.8" result="blur" />
+                      <feGaussianBlur stdDeviation="0.4" result="blur" />
                       <feMerge>
                         <feMergeNode in="blur" />
                         <feMergeNode in="SourceGraphic" />
@@ -555,6 +657,15 @@ export function CampusMap() {
                       transition: isDragging ? "none" : "transform 0.12s ease-out",
                     }}
                   >
+                    {/* Architectural Background Grid Rect */}
+                    <rect
+                      x="-6"
+                      y="-5"
+                      width="106"
+                      height="43"
+                      fill="url(#campus-cad-grid)"
+                    />
+
                     {/* Building Zone Background Boundaries (Schematic) */}
                     <g>
                       {/* Administration Building Zone Rect */}
@@ -563,13 +674,12 @@ export function CampusMap() {
                         y="16.5"
                         width="34"
                         height="17"
-                        rx="3"
-                        fill="#0f172a"
-                        fillOpacity="0.45"
-                        stroke="#0ea5e9"
-                        strokeOpacity="0.3"
-                        strokeWidth="0.4"
-                        strokeDasharray="2 1"
+                        rx="2"
+                        fill="#FFFFFF"
+                        fillOpacity="0.88"
+                        stroke="#C7C7BA"
+                        strokeWidth="0.35"
+                        strokeDasharray="1.5 1"
                       />
 
                       {/* Academic Building Zone Rect */}
@@ -578,13 +688,12 @@ export function CampusMap() {
                         y="16.5"
                         width="35"
                         height="17"
-                        rx="3"
-                        fill="#0f172a"
-                        fillOpacity="0.45"
-                        stroke="#0ea5e9"
-                        strokeOpacity="0.3"
-                        strokeWidth="0.4"
-                        strokeDasharray="2 1"
+                        rx="2"
+                        fill="#FFFFFF"
+                        fillOpacity="0.88"
+                        stroke="#C7C7BA"
+                        strokeWidth="0.35"
+                        strokeDasharray="1.5 1"
                       />
 
                       {/* Central Courtyard / Walkway Zone Rect */}
@@ -593,34 +702,34 @@ export function CampusMap() {
                         y="0.5"
                         width="20"
                         height="14"
-                        rx="3"
-                        fill="#0f172a"
-                        fillOpacity="0.45"
-                        stroke="#d97706"
-                        strokeOpacity="0.3"
-                        strokeWidth="0.4"
-                        strokeDasharray="2 1"
+                        rx="2"
+                        fill="#EEEDE5"
+                        fillOpacity="0.65"
+                        stroke="#B77A26"
+                        strokeOpacity="0.4"
+                        strokeWidth="0.35"
+                        strokeDasharray="1.5 1"
                       />
 
-                      {/* High-Contrast Building Header Badges */}
+                      {/* Building Header Badges */}
                       {/* Administration Building Header */}
                       <g className="pointer-events-none select-none">
                         <rect
                           x="5"
                           y="14.2"
-                          width="23"
+                          width="24"
                           height="3.2"
                           rx="0.8"
-                          fill="#090d16"
-                          stroke="#38bdf8"
+                          fill="#FFFFFF"
+                          stroke="#DFDFD4"
                           strokeWidth="0.35"
                         />
                         <text
-                          x="16.5"
+                          x="17"
                           y="16.35"
                           textAnchor="middle"
-                          fill="#38bdf8"
-                          fontSize="1.35"
+                          fill="#1A1D14"
+                          fontSize="1.3"
                           fontWeight="700"
                           letterSpacing="0.05em"
                           fontFamily="system-ui, -apple-system, sans-serif"
@@ -637,16 +746,16 @@ export function CampusMap() {
                           width="21"
                           height="3.2"
                           rx="0.8"
-                          fill="#090d16"
-                          stroke="#38bdf8"
+                          fill="#FFFFFF"
+                          stroke="#DFDFD4"
                           strokeWidth="0.35"
                         />
                         <text
                           x="65.5"
                           y="16.35"
                           textAnchor="middle"
-                          fill="#38bdf8"
-                          fontSize="1.35"
+                          fill="#1A1D14"
+                          fontSize="1.3"
                           fontWeight="700"
                           letterSpacing="0.05em"
                           fontFamily="system-ui, -apple-system, sans-serif"
@@ -663,16 +772,16 @@ export function CampusMap() {
                           width="18"
                           height="3"
                           rx="0.8"
-                          fill="#1c1917"
-                          stroke="#fbbf24"
+                          fill="#FFFFFF"
+                          stroke="#DFDFD4"
                           strokeWidth="0.35"
                         />
                         <text
                           x="49"
                           y="0.8"
                           textAnchor="middle"
-                          fill="#fbbf24"
-                          fontSize="1.25"
+                          fill="#7A4F13"
+                          fontSize="1.2"
                           fontWeight="700"
                           letterSpacing="0.05em"
                           fontFamily="system-ui, -apple-system, sans-serif"
@@ -697,48 +806,106 @@ export function CampusMap() {
                       const p2 = transformCoordinates(toNode.x, toNode.y, toNode.floor_id);
 
                       const isPathEdge = activePathEdgeIds.includes(edge.id);
+                      const isBlockedEdge = simulatedBlockedEdgeIds.includes(edge.id);
                       const isInspected = inspectedEdgeId === edge.id;
                       const isOneWay = !edge.bidirectional;
 
                       return (
                         <g key={edge.id}>
-                          {/* Base line */}
+                          {/* Route halo underlay */}
+                          {isPathEdge && (
+                            <line
+                              x1={p1.svgX}
+                              y1={p1.svgY}
+                              x2={p2.svgX}
+                              y2={p2.svgY}
+                              stroke="#BDEEC7"
+                              strokeWidth={2.6}
+                              strokeOpacity={0.7}
+                            />
+                          )}
+
+                          {/* Hazard blockage underlay */}
+                          {isBlockedEdge && (
+                            <line
+                              x1={p1.svgX}
+                              y1={p1.svgY}
+                              x2={p2.svgX}
+                              y2={p2.svgY}
+                              stroke="#FDF2F0"
+                              strokeWidth={2.6}
+                              strokeOpacity={0.9}
+                            />
+                          )}
+
+                          {/* Base edge line */}
                           <line
                             x1={p1.svgX}
                             y1={p1.svgY}
                             x2={p2.svgX}
                             y2={p2.svgY}
                             stroke={
-                              isPathEdge
-                                ? "#10b981"
+                              isBlockedEdge
+                                ? "#BA1A1A"
+                                : isPathEdge
+                                ? "#3C6849"
                                 : isInspected
-                                ? "#f59e0b"
+                                ? "#B77A26"
                                 : isOneWay
-                                ? "#38bdf8"
-                                : "#334155"
+                                ? "#57603A"
+                                : "#C7C7BA"
                             }
-                            strokeWidth={isPathEdge ? 1.4 : isInspected ? 1.0 : 0.6}
+                            strokeWidth={isBlockedEdge ? 1.4 : isPathEdge ? 1.3 : isInspected ? 1.0 : 0.6}
                             strokeDasharray={
-                              edge.edge_type === "staircase"
+                              isBlockedEdge
+                                ? "1.2 0.8"
+                                : edge.edge_type === "staircase"
                                 ? "1.2 0.8"
                                 : isOneWay && !isPathEdge
                                 ? "2 1"
                                 : undefined
                             }
                             markerEnd={
-                              isPathEdge
+                              isBlockedEdge
+                                ? undefined
+                                : isPathEdge
                                 ? "url(#route-arrow)"
                                 : isOneWay
                                 ? "url(#directed-arrow)"
                                 : undefined
                             }
                             filter={isPathEdge ? "url(#route-glow)" : undefined}
-                            className="cursor-pointer transition-all hover:stroke-cyan-400"
+                            className="cursor-pointer transition-colors hover:stroke-[#57603A]"
                             onClick={() => {
                               setInspectedEdgeId(edge.id);
                               setInspectedNodeId(null);
                             }}
                           />
+
+                          {/* Blockage indicator marker */}
+                          {isBlockedEdge && (
+                            <g className="pointer-events-none select-none">
+                              <circle
+                                cx={(p1.svgX + p2.svgX) / 2}
+                                cy={(p1.svgY + p2.svgY) / 2}
+                                r={1.0}
+                                fill="#FFFFFF"
+                                stroke="#BA1A1A"
+                                strokeWidth={0.3}
+                              />
+                              <text
+                                x={(p1.svgX + p2.svgX) / 2}
+                                y={(p1.svgY + p2.svgY) / 2 + 0.35}
+                                textAnchor="middle"
+                                fill="#BA1A1A"
+                                fontSize="0.9"
+                                fontWeight="bold"
+                                fontFamily="system-ui, sans-serif"
+                              >
+                                ✕
+                              </text>
+                            </g>
+                          )}
                         </g>
                       );
                     })}
@@ -753,34 +920,27 @@ export function CampusMap() {
                       const isPathNode = activePathNodeIds.includes(node.id);
                       const isInspected = inspectedNodeId === node.id;
 
-                      // Color scheme by type
-                      let nodeFill = "#64748b"; // default slate
-                      let nodeStroke = "#94a3b8";
+                      // Semantic color palette tailored for Stitch enterprise
+                      let nodeFill = "#686B60"; // default charcoal stone
                       let radius = 1.6;
 
                       if (node.is_assembly_point) {
-                        nodeFill = "#f59e0b"; // amber
-                        nodeStroke = "#fbbf24";
+                        nodeFill = "#B77A26"; // amber gold
                         radius = 2.4;
                       } else if (node.is_exit) {
-                        nodeFill = "#22c55e"; // bright green
-                        nodeStroke = "#4ade80";
+                        nodeFill = "#3C6849"; // forest operational green
                         radius = 2.2;
                       } else if (node.node_type === "entrance") {
-                        nodeFill = "#059669"; // emerald
-                        nodeStroke = "#34d399";
+                        nodeFill = "#57603A"; // primary olive
                         radius = 2.0;
                       } else if (node.node_type === "staircase") {
-                        nodeFill = "#8b5cf6"; // purple
-                        nodeStroke = "#a78bfa";
+                        nodeFill = "#686B60"; // medium slate/charcoal
                         radius = 1.8;
                       } else if (node.node_type === "room") {
-                        nodeFill = "#06b6d4"; // cyan
-                        nodeStroke = "#67e8f9";
+                        nodeFill = "#46483E"; // dark charcoal
                         radius = 1.7;
                       } else if (node.node_type === "junction") {
-                        nodeFill = "#3b82f6"; // blue
-                        nodeStroke = "#60a5fa";
+                        nodeFill = "#686B60"; // junction stone
                         radius = 1.6;
                       }
 
@@ -805,14 +965,14 @@ export function CampusMap() {
                               fill="none"
                               stroke={
                                 isStart
-                                  ? "#10b981"
+                                  ? "#1A1D14"
                                   : isDestination
-                                  ? "#38bdf8"
+                                  ? "#3C6849"
                                   : isInspected
-                                  ? "#f59e0b"
-                                  : "#34d399"
+                                  ? "#B77A26"
+                                  : "#3C6849"
                               }
-                              strokeWidth={0.6}
+                              strokeWidth={0.5}
                               strokeDasharray={isStart || isDestination ? "1.5 1" : undefined}
                               className={isStart || isDestination ? "animate-pulse" : undefined}
                             />
@@ -824,15 +984,9 @@ export function CampusMap() {
                             cy={svgY}
                             r={radius}
                             fill={nodeFill}
-                            stroke={
-                              isStart
-                                ? "#ffffff"
-                                : isDestination
-                                ? "#ffffff"
-                                : nodeStroke
-                            }
-                            strokeWidth={isStart || isDestination ? 0.8 : 0.4}
-                            className="transition-colors duration-150 group-hover:stroke-white"
+                            stroke="#FFFFFF"
+                            strokeWidth={isStart || isDestination ? 0.8 : 0.45}
+                            className="transition-colors duration-150 group-hover:stroke-[#1A1D14]"
                           />
 
                           {/* Node Compact Label Pill */}
@@ -844,20 +998,18 @@ export function CampusMap() {
                                 width={labelBox.width}
                                 height={labelBox.height}
                                 rx="0.5"
-                                fill="#020617"
-                                fillOpacity="0.92"
+                                fill="#FFFFFF"
+                                fillOpacity="0.96"
                                 stroke={
                                   isStart
-                                    ? "#10b981"
-                                    : isDestination
-                                    ? "#38bdf8"
-                                    : isPathNode
-                                    ? "#34d399"
+                                    ? "#1A1D14"
+                                    : isDestination || isPathNode
+                                    ? "#3C6849"
                                     : isInspected
-                                    ? "#f59e0b"
-                                    : "#334155"
+                                    ? "#B77A26"
+                                    : "#DFDFD4"
                                 }
-                                strokeWidth={isStart || isDestination || isInspected ? 0.4 : 0.25}
+                                strokeWidth={isStart || isDestination || isInspected || isPathNode ? 0.35 : 0.25}
                               />
                               <text
                                 x={labelBox.x + labelBox.width / 2}
@@ -865,15 +1017,15 @@ export function CampusMap() {
                                 textAnchor="middle"
                                 fontSize="1.15"
                                 fill={
-                                  isStart || isDestination
-                                    ? "#ffffff"
-                                    : isPathNode
-                                    ? "#34d399"
+                                  isStart
+                                    ? "#1A1D14"
+                                    : isDestination || isPathNode
+                                    ? "#3C6849"
                                     : isInspected
-                                    ? "#fef08a"
-                                    : "#e2e8f0"
+                                    ? "#7A4F13"
+                                    : "#46483E"
                                 }
-                                fontWeight={isStart || isDestination || isPathNode || isInspected ? "bold" : "600"}
+                                fontWeight={isStart || isDestination || isPathNode || isInspected ? "700" : "600"}
                                 fontFamily="ui-monospace, monospace"
                               >
                                 {compactLabel}
@@ -890,9 +1042,9 @@ export function CampusMap() {
                                 width={badgeBox.width}
                                 height={badgeBox.height}
                                 rx="0.4"
-                                fill="#064e3b"
-                                fillOpacity="0.95"
-                                stroke="#10b981"
+                                fill="#1A1D14"
+                                fillOpacity="0.98"
+                                stroke="#1A1D14"
                                 strokeWidth="0.3"
                               />
                               <text
@@ -900,7 +1052,7 @@ export function CampusMap() {
                                 y={badgeBox.y + badgeBox.height / 2 + 0.35}
                                 textAnchor="middle"
                                 fontSize="0.95"
-                                fill="#a7f3d0"
+                                fill="#FFFFFF"
                                 fontWeight="bold"
                                 fontFamily="ui-monospace, monospace"
                               >
@@ -918,9 +1070,9 @@ export function CampusMap() {
                                 width={badgeBox.width}
                                 height={badgeBox.height}
                                 rx="0.4"
-                                fill="#0c4a6e"
-                                fillOpacity="0.95"
-                                stroke="#38bdf8"
+                                fill="#3C6849"
+                                fillOpacity="0.98"
+                                stroke="#3C6849"
                                 strokeWidth="0.3"
                               />
                               <text
@@ -928,7 +1080,7 @@ export function CampusMap() {
                                 y={badgeBox.y + badgeBox.height / 2 + 0.35}
                                 textAnchor="middle"
                                 fontSize="0.95"
-                                fill="#bae6fd"
+                                fill="#FFFFFF"
                                 fontWeight="bold"
                                 fontFamily="ui-monospace, monospace"
                               >
@@ -945,38 +1097,38 @@ export function CampusMap() {
               </div>
 
               {/* MAP LEGEND */}
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/30 bg-background/40 p-3 text-xs">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-3 text-xs">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-emerald-500 shadow-sm" />
-                    <span className="text-muted-foreground">Exit / Entrance</span>
+                    <span className="h-3 w-3 rounded-full bg-[#3C6849] border border-white shadow-xs" />
+                    <span className="text-[#686B60]">Emergency Exit Door</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-amber-500 shadow-sm" />
-                    <span className="text-muted-foreground">Assembly Point</span>
+                    <span className="h-3 w-3 rounded-full bg-[#57603A] border border-white shadow-xs" />
+                    <span className="text-[#686B60]">Building Entrance</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-purple-500 shadow-sm" />
-                    <span className="text-muted-foreground">Staircase</span>
+                    <span className="h-3 w-3 rounded-full bg-[#B77A26] border border-white shadow-xs" />
+                    <span className="text-[#686B60]">Assembly Grounds</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-cyan-500 shadow-sm" />
-                    <span className="text-muted-foreground">Room</span>
+                    <span className="h-3 w-3 rounded-full bg-[#686B60] border border-white shadow-xs" />
+                    <span className="text-[#686B60]">Staircase / Corridor</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-full bg-blue-500 shadow-sm" />
-                    <span className="text-muted-foreground">Corridor / Junction</span>
+                    <span className="h-3 w-3 rounded-full bg-[#46483E] border border-white shadow-xs" />
+                    <span className="text-[#686B60]">Room</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5">
-                    <span className="h-0.5 w-4 bg-emerald-400" />
-                    <span className="text-muted-foreground">Calculated Route</span>
+                    <span className="h-1 w-4 rounded-full bg-[#3C6849]" />
+                    <span className="text-[#686B60]">Active Route Path</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-0.5 w-4 border-b border-dashed border-sky-400" />
-                    <span className="text-muted-foreground">Directed Arc</span>
+                    <span className="h-0.5 w-4 border-b border-dashed border-[#57603A]" />
+                    <span className="text-[#686B60]">Directed Arc</span>
                   </div>
                 </div>
               </div>
@@ -985,23 +1137,23 @@ export function CampusMap() {
 
           {/* INSPECTION DRAWER / DETAILS CARD */}
           {(inspectedNode || inspectedEdge) && (
-            <Card className="border border-border/40 bg-card/30 backdrop-blur-sm">
+            <Card className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
               <CardContent className="p-4">
                 {inspectedNode && (
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
+                        <Badge variant="outline" className="text-xs border-[#DFDFD4] bg-[#EEEDE5] text-[#46483E]">
                           {inspectedNode.node_type.toUpperCase()}
                         </Badge>
-                        <h4 className="font-semibold">{inspectedNode.name}</h4>
-                        <span className="text-xs text-muted-foreground font-mono">({inspectedNode.code})</span>
+                        <h4 className="font-semibold text-[#1A1D14]">{inspectedNode.name}</h4>
+                        <span className="text-xs text-[#686B60] font-mono">({inspectedNode.code})</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 text-xs text-emerald-400 hover:text-emerald-300"
+                          className="h-7 text-xs border-[#DFDFD4] bg-[#FFFFFF] hover:bg-[#EEEDE5] text-[#1A1D14]"
                           onClick={() => handleSetStart(inspectedNode.id)}
                         >
                           Set as Start
@@ -1009,7 +1161,7 @@ export function CampusMap() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 text-xs text-sky-400 hover:text-sky-300"
+                          className="h-7 text-xs border-[#3C6849]/30 bg-[#E6EFE8] hover:bg-[#d9e6dc] text-[#244f32]"
                           onClick={() => handleSetDestination(inspectedNode.id)}
                         >
                           Set as Destination
@@ -1019,20 +1171,20 @@ export function CampusMap() {
 
                     <div className="grid grid-cols-2 gap-4 text-xs sm:grid-cols-4">
                       <div>
-                        <span className="text-muted-foreground">Building:</span>
-                        <p className="font-medium">{inspectedNode.building_name}</p>
+                        <span className="text-[#686B60]">Building:</span>
+                        <p className="font-medium text-[#1A1D14]">{inspectedNode.building_name}</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Floor:</span>
-                        <p className="font-medium">{inspectedNode.floor_name}</p>
+                        <span className="text-[#686B60]">Floor:</span>
+                        <p className="font-medium text-[#1A1D14]">{inspectedNode.floor_name}</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Local Coordinates:</span>
-                        <p className="font-mono">({inspectedNode.x}, {inspectedNode.y})</p>
+                        <span className="text-[#686B60]">Local Coordinates:</span>
+                        <p className="font-mono text-[#1A1D14]">({inspectedNode.x}, {inspectedNode.y})</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Capacity:</span>
-                        <p className="font-medium">{inspectedNode.capacity} people</p>
+                        <span className="text-[#686B60]">Capacity:</span>
+                        <p className="font-medium text-[#1A1D14]">{inspectedNode.capacity} people</p>
                       </div>
                     </div>
                   </div>
@@ -1042,14 +1194,14 @@ export function CampusMap() {
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
+                        <Badge variant="outline" className="text-xs border-[#DFDFD4] bg-[#EEEDE5] text-[#46483E]">
                           EDGE ({inspectedEdge.edge_type.toUpperCase()})
                         </Badge>
-                        <span className="font-mono text-xs text-muted-foreground">{inspectedEdge.id}</span>
+                        <span className="font-mono text-xs text-[#686B60]">{inspectedEdge.id}</span>
                       </div>
                       <Badge
                         variant="secondary"
-                        className={inspectedEdge.bidirectional ? "text-emerald-400" : "text-sky-400"}
+                        className={inspectedEdge.bidirectional ? "bg-[#E6EFE8] text-[#244f32] border border-[#3C6849]/20" : "bg-[#EEEDE5] text-[#46483E]"}
                       >
                         {inspectedEdge.bidirectional ? "Bidirectional" : "One-Way Directed"}
                       </Badge>
@@ -1057,20 +1209,20 @@ export function CampusMap() {
 
                     <div className="grid grid-cols-2 gap-4 text-xs sm:grid-cols-4">
                       <div>
-                        <span className="text-muted-foreground">From Node:</span>
-                        <p className="font-medium">{getNodeById(inspectedEdge.from_node_id)?.name || "Unknown"}</p>
+                        <span className="text-[#686B60]">From Node:</span>
+                        <p className="font-medium text-[#1A1D14]">{getNodeById(inspectedEdge.from_node_id)?.name || "Unknown"}</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">To Node:</span>
-                        <p className="font-medium">{getNodeById(inspectedEdge.to_node_id)?.name || "Unknown"}</p>
+                        <span className="text-[#686B60]">To Node:</span>
+                        <p className="font-medium text-[#1A1D14]">{getNodeById(inspectedEdge.to_node_id)?.name || "Unknown"}</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Distance:</span>
-                        <p className="font-mono font-medium">{inspectedEdge.distance} metres</p>
+                        <span className="text-[#686B60]">Distance:</span>
+                        <p className="font-mono font-medium text-[#1A1D14]">{inspectedEdge.distance} metres</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Base Speed / Cap:</span>
-                        <p className="font-mono">{inspectedEdge.base_speed} m/s · {inspectedEdge.base_capacity} ppl</p>
+                        <span className="text-[#686B60]">Base Speed / Cap:</span>
+                        <p className="font-mono text-[#1A1D14]">{inspectedEdge.base_speed} m/s · {inspectedEdge.base_capacity} ppl</p>
                       </div>
                     </div>
                   </div>
@@ -1083,24 +1235,28 @@ export function CampusMap() {
         {/* CONTROLS & ROUTING SIDEBAR (4 cols) */}
         <div className="flex flex-col gap-6 lg:col-span-4">
           {/* Strategy & Route Configuration Card */}
-          <Card className="border border-border/50 bg-card/40 backdrop-blur-md">
-            <CardHeader className="pb-3 pt-4">
-              <CardTitle className="text-base font-semibold">Route Controls</CardTitle>
-              <CardDescription className="text-xs">
-                Select endpoints and routing strategy to calculate pathways.
+          <Card className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+            <CardHeader className="border-b border-[#DFDFD4] pb-3 pt-4 px-5">
+              <CardTitle className="text-sm font-semibold text-[#1A1D14]">Route Controls & Strategy</CardTitle>
+              <CardDescription className="text-xs text-[#686B60]">
+                Select endpoints and pathfinding algorithm to calculate traversal corridors.
               </CardDescription>
             </CardHeader>
 
-            <CardContent className="flex flex-col gap-4">
+            <CardContent className="flex flex-col gap-4 p-5">
               {/* Routing Strategy Selector */}
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                <label className="mb-1.5 block text-xs font-semibold text-[#1A1D14]">
                   Routing Strategy
                 </label>
                 <select
                   value={strategy}
-                  onChange={(e) => setStrategy(e.target.value as RoutingStrategy)}
-                  className="w-full rounded-lg border border-border/60 bg-background/80 px-3 py-2 text-xs text-foreground focus:border-emerald-500 focus:outline-none"
+                  onChange={(e) => {
+                    const nextStrategy = e.target.value as RoutingStrategy;
+                    setStrategy(nextStrategy);
+                    handleClearRoute();
+                  }}
+                  className="w-full rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] px-3 py-2 text-xs font-medium text-[#1A1D14] focus:border-[#57603A] focus:outline-none"
                 >
                   <option value="shortest">Shortest Physical Distance (Dijkstra)</option>
                   <option value="astar">A* Search (Zero Heuristic)</option>
@@ -1113,13 +1269,21 @@ export function CampusMap() {
 
               {/* Start Node Selector */}
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                <label className="mb-1.5 block text-xs font-semibold text-[#1A1D14]">
                   Start Node
                 </label>
                 <select
                   value={startNodeId}
-                  onChange={(e) => setStartNodeId(e.target.value)}
-                  className="w-full rounded-lg border border-border/60 bg-background/80 px-3 py-2 text-xs text-foreground focus:border-emerald-500 focus:outline-none"
+                  onChange={(e) => {
+                    const nextStart = e.target.value;
+                    setStartNodeId(nextStart);
+                    if (strategy === "evacuation") {
+                      handleCalculateRoute(hazardPreset, "evacuation", nextStart);
+                    } else {
+                      handleClearRoute();
+                    }
+                  }}
+                  className="w-full rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] px-3 py-2 text-xs font-medium text-[#1A1D14] focus:border-[#57603A] focus:outline-none"
                 >
                   {DEMO_NODES.map((node) => (
                     <option key={node.id} value={node.id}>
@@ -1132,13 +1296,13 @@ export function CampusMap() {
               {/* Destination Node Selector (Hidden if Evacuation strategy) */}
               {strategy !== "evacuation" ? (
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  <label className="mb-1.5 block text-xs font-semibold text-[#1A1D14]">
                     Destination Node
                   </label>
                   <select
                     value={destinationNodeId}
                     onChange={(e) => setDestinationNodeId(e.target.value)}
-                    className="w-full rounded-lg border border-border/60 bg-background/80 px-3 py-2 text-xs text-foreground focus:border-emerald-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] px-3 py-2 text-xs font-medium text-[#1A1D14] focus:border-[#57603A] focus:outline-none"
                   >
                     {DEMO_NODES.map((node) => (
                       <option key={node.id} value={node.id}>
@@ -1148,12 +1312,12 @@ export function CampusMap() {
                   </select>
                 </div>
               ) : (
-                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-300">
-                  <div className="flex items-center gap-1.5 font-medium">
-                    <CheckCircle2 className="h-4 w-4" />
+                <div className="rounded-lg border border-[#3C6849]/25 bg-[#E6EFE8]/50 p-3 text-xs text-[#244f32]">
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <CheckCircle2 className="h-4 w-4 text-[#3C6849]" />
                     <span>Automatic Exit Evaluation</span>
                   </div>
-                  <p className="mt-1 text-muted-foreground">
+                  <p className="mt-1 text-[#46483E]">
                     Backend evaluates all 3 active campus exits and selects the nearest reachable exit by physical distance.
                   </p>
                 </div>
@@ -1161,17 +1325,17 @@ export function CampusMap() {
 
               {/* Congestion & ML Parameters (When applicable) */}
               {(strategy === "congestion" || strategy === "prediction") && (
-                <div className="flex flex-col gap-3 rounded-lg border border-border/40 bg-background/40 p-3">
+                <div className="flex flex-col gap-3 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-3 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">Scenario Parameters</span>
-                    <Badge variant="outline" className="text-[10px] text-amber-400">
+                    <span className="font-semibold text-[#1A1D14]">Scenario Parameters</span>
+                    <Badge variant="outline" className="border-[#B77A26]/30 bg-[#FAF2E4] text-[10px] font-medium text-[#7A4F13]">
                       Scenario Only
                     </Badge>
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">
-                      Base Walking Speed: <span className="font-mono text-foreground">{walkingSpeed} m/s</span>
+                    <label className="mb-1 block text-xs text-[#686B60]">
+                      Base Walking Speed: <span className="font-mono font-semibold text-[#1A1D14]">{walkingSpeed} m/s</span>
                     </label>
                     <input
                       type="range"
@@ -1180,18 +1344,18 @@ export function CampusMap() {
                       step="0.1"
                       value={walkingSpeed}
                       onChange={(e) => setWalkingSpeed(parseFloat(e.target.value))}
-                      className="w-full accent-emerald-500"
+                      className="w-full accent-[#57603A]"
                     />
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">
+                    <label className="mb-1 block text-xs text-[#686B60]">
                       Crowd Scenario Preset
                     </label>
                     <select
                       value={scenarioPreset}
                       onChange={(e) => setScenarioPreset(e.target.value as "none" | "moderate" | "heavy")}
-                      className="w-full rounded border border-border/50 bg-background px-2 py-1.5 text-xs text-foreground"
+                      className="w-full rounded border border-[#DFDFD4] bg-[#FFFFFF] px-2 py-1.5 text-xs text-[#1A1D14]"
                     >
                       <option value="none">Baseline (No extra edge congestion)</option>
                       <option value="moderate">Moderate Corridor Crowding</option>
@@ -1201,12 +1365,46 @@ export function CampusMap() {
                 </div>
               )}
 
+              {/* Hazard Simulation (Demo Only) */}
+              <div className="flex flex-col gap-2 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-[#1A1D14]">Hazard Simulation (Demo Only)</span>
+                  <Badge variant="outline" className="border-[#BA1A1A]/30 bg-[#FDF2F0] text-[10px] font-medium text-[#BA1A1A]">
+                    Demo Only
+                  </Badge>
+                </div>
+                <div>
+                  <label htmlFor="hazard-scenario-select" className="mb-1 block text-xs text-[#686B60]">
+                    Scenario Preset
+                  </label>
+                  <select
+                    id="hazard-scenario-select"
+                    data-testid="hazard-simulation-select"
+                    value={hazardPreset}
+                    onChange={(e) => {
+                      const next = e.target.value as "none" | "fire_escape" | "ground_exit" | "all_admin_exits";
+                      setHazardPreset(next);
+                      handleCalculateRoute(next);
+                    }}
+                    className="w-full rounded border border-[#DFDFD4] bg-[#FFFFFF] px-2 py-1.5 text-xs text-[#1A1D14]"
+                  >
+                    <option value="none">Baseline — No simulated blockages</option>
+                    <option value="fire_escape">1st Floor Fire Escape Blocked</option>
+                    <option value="ground_exit">West Ground Emergency Exit Blocked</option>
+                    <option value="all_admin_exits">All Administration Exits Blocked</option>
+                  </select>
+                </div>
+                <p className="text-[10px] text-[#686B60] italic">
+                  Injects test blockages into route calculation. Returning to Baseline clears all simulated hazards.
+                </p>
+              </div>
+
               {/* Action Buttons */}
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-1">
                 <Button
-                  onClick={handleCalculateRoute}
+                  onClick={() => handleCalculateRoute()}
                   disabled={routeLoading}
-                  className="flex-1 gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 font-medium text-white shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-teal-700"
+                  className="flex-1 gap-2 bg-[#57603A] hover:bg-[#626B45] font-semibold text-white text-xs shadow-xs"
                 >
                   {routeLoading ? (
                     <RefreshCw className="h-4 w-4 animate-spin" />
@@ -1219,11 +1417,12 @@ export function CampusMap() {
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={handleCalculateRoute}
+                  onClick={() => handleCalculateRoute()}
                   disabled={routeLoading}
-                  title="Recalculate with fresh conditions"
+                  title="Recalculate route"
+                  className="border-[#DFDFD4] bg-[#FFFFFF] hover:bg-[#EEEDE5] text-[#1A1D14]"
                 >
-                  <RefreshCw className={`h-4 w-4 ${routeLoading ? "animate-spin" : ""}`} />
+                  <RefreshCw className={`h-4 w-4 text-[#686B60] ${routeLoading ? "animate-spin" : ""}`} />
                 </Button>
 
                 <Button
@@ -1231,6 +1430,7 @@ export function CampusMap() {
                   size="icon"
                   onClick={handleClearRoute}
                   title="Clear active route"
+                  className="text-[#686B60] hover:text-[#1A1D14] hover:bg-[#EEEDE5]"
                 >
                   <RotateCcw className="h-4 w-4" />
                 </Button>
@@ -1238,11 +1438,40 @@ export function CampusMap() {
 
               {/* Error callout */}
               {routeError && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
-                  <div>
-                    <p className="font-semibold text-red-200">Routing Request Failed</p>
-                    <p className="mt-0.5">{routeError}</p>
+                <div
+                  className={`flex items-start gap-2.5 rounded-lg border p-3.5 text-xs transition-colors ${
+                    routeError.kind === "unreachable"
+                      ? "border-[#BA1A1A]/35 bg-[#FDF2F0]"
+                      : routeError.kind === "network"
+                      ? "border-[#8B5000]/30 bg-[#FFF8F0]"
+                      : routeError.kind === "invalid_request"
+                      ? "border-[#686B60]/30 bg-[#F5F4EE]"
+                      : "border-[#BA1A1A]/30 bg-[#F9E8E7]"
+                  }`}
+                  role="alert"
+                >
+                  <AlertTriangle
+                    className={`h-4 w-4 shrink-0 mt-0.5 ${
+                      routeError.kind === "network"
+                        ? "text-[#8B5000]"
+                        : routeError.kind === "invalid_request"
+                        ? "text-[#686B60]"
+                        : "text-[#BA1A1A]"
+                    }`}
+                  />
+                  <div className="flex-1">
+                    <p
+                      className={`font-semibold tracking-tight ${
+                        routeError.kind === "network"
+                          ? "text-[#703C00]"
+                          : routeError.kind === "invalid_request"
+                          ? "text-[#1A1D14]"
+                          : "text-[#BA1A1A]"
+                      }`}
+                    >
+                      {routeError.title}
+                    </p>
+                    <p className="mt-1 leading-relaxed text-[#43483E]">{routeError.message}</p>
                   </div>
                 </div>
               )}
@@ -1250,44 +1479,115 @@ export function CampusMap() {
           </Card>
 
           {/* ROUTE RESULTS & SUMMARY CARD */}
-          {(shortestResult || emergencyResult || evacuationResult || congestionResult || predictionResult) && (
-            <Card className="border border-border/50 bg-card/40 backdrop-blur-md">
-              <CardHeader className="pb-3 pt-4">
+          {(
+            (strategy === "evacuation" && evacuationResult !== null) ||
+            (strategy === "emergency" && emergencyResult !== null) ||
+            (strategy === "congestion" && congestionResult !== null) ||
+            (strategy === "prediction" && predictionResult !== null) ||
+            ((strategy === "shortest" || strategy === "astar") && shortestResult !== null)
+          ) && (
+            <Card className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+              <CardHeader className="border-b border-[#DFDFD4] pb-3 pt-4 px-5">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-semibold">Route Summary</CardTitle>
-                  <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
-                    Route Found
-                  </Badge>
+                  <CardTitle className="text-sm font-semibold text-[#1A1D14]">Route Telemetry</CardTitle>
+                  {strategy === "evacuation" ? (
+                    evacuationResult?.status === "no_route" ? (
+                      <span className="inline-flex items-center rounded-full border border-[#BA1A1A]/30 bg-[#FDF2F0] px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase text-[#BA1A1A]">
+                        No Exit Reachable
+                      </span>
+                    ) : evacuationResult?.blocked_edge_count && evacuationResult.blocked_edge_count > 0 ? (
+                      <span className="inline-flex items-center rounded-full border border-[#B77A26]/30 bg-[#FAF2E4] px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase text-[#7A4F13]">
+                        Alternate Route Selected
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full border border-[#3C6849]/25 bg-[#E6EFE8] px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase text-[#244f32]">
+                        Active Path
+                      </span>
+                    )
+                  ) : strategy === "emergency" && emergencyResult?.blocked_edge_count && emergencyResult.blocked_edge_count > 0 ? (
+                    <span className="inline-flex items-center rounded-full border border-[#B77A26]/30 bg-[#FAF2E4] px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase text-[#7A4F13]">
+                      Alternate Route Selected
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full border border-[#3C6849]/25 bg-[#E6EFE8] px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase text-[#244f32]">
+                      Active Path
+                    </span>
+                  )}
                 </div>
               </CardHeader>
 
-              <CardContent className="flex flex-col gap-4 text-xs">
+              <CardContent className="flex flex-col gap-4 p-5 text-xs">
                 {/* Distance & Travel Time Metrics */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-border/30 bg-background/50 p-3">
-                    <span className="text-muted-foreground">Total Physical Distance</span>
-                    <p className="mt-1 text-lg font-bold text-foreground font-mono">
-                      {evacuationResult
-                        ? evacuationResult.total_distance_m?.toFixed(1)
-                        : (shortestResult || emergencyResult || congestionResult)?.total_distance_m.toFixed(1) ||
-                          predictionResult?.route_distance_m.toFixed(1)}
-                      <span className="text-xs font-normal text-muted-foreground ml-1">metres</span>
+                  <div className="rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-3.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#686B60]">
+                      Physical Distance
+                    </span>
+                    <p className="mt-1 text-2xl font-bold font-mono tracking-tight text-[#1A1D14]">
+                      {strategy === "evacuation" ? (
+                        evacuationResult?.status === "route_found" &&
+                        evacuationResult.total_distance_m !== null &&
+                        evacuationResult.total_distance_m !== undefined ? (
+                          <>
+                            {evacuationResult.total_distance_m.toFixed(1)}
+                            <span className="text-xs font-normal text-[#686B60] ml-1.5">m</span>
+                          </>
+                        ) : (
+                          "—"
+                        )
+                      ) : strategy === "emergency" ? (
+                        emergencyResult?.total_distance_m !== null && emergencyResult?.total_distance_m !== undefined ? (
+                          <>
+                            {emergencyResult.total_distance_m.toFixed(1)}
+                            <span className="text-xs font-normal text-[#686B60] ml-1.5">m</span>
+                          </>
+                        ) : (
+                          "—"
+                        )
+                      ) : strategy === "congestion" ? (
+                        congestionResult?.total_distance_m !== null && congestionResult?.total_distance_m !== undefined ? (
+                          <>
+                            {congestionResult.total_distance_m.toFixed(1)}
+                            <span className="text-xs font-normal text-[#686B60] ml-1.5">m</span>
+                          </>
+                        ) : (
+                          "—"
+                        )
+                      ) : strategy === "prediction" ? (
+                        predictionResult?.route_distance_m !== null && predictionResult?.route_distance_m !== undefined ? (
+                          <>
+                            {predictionResult.route_distance_m.toFixed(1)}
+                            <span className="text-xs font-normal text-[#686B60] ml-1.5">m</span>
+                          </>
+                        ) : (
+                          "—"
+                        )
+                      ) : shortestResult?.total_distance_m !== null && shortestResult?.total_distance_m !== undefined ? (
+                        <>
+                          {shortestResult.total_distance_m.toFixed(1)}
+                          <span className="text-xs font-normal text-[#686B60] ml-1.5">m</span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
                     </p>
                   </div>
 
-                  <div className="rounded-lg border border-border/30 bg-background/50 p-3">
-                    <span className="text-muted-foreground">Estimated Time</span>
+                  <div className="rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-3.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#686B60]">
+                      Estimated Duration
+                    </span>
                     {congestionResult ? (
-                      <p className="mt-1 text-lg font-bold font-mono text-emerald-400">
+                      <p className="mt-1 text-2xl font-bold font-mono tracking-tight text-[#3C6849]">
                         {congestionResult.estimated_travel_time_s.toFixed(1)}s
                       </p>
                     ) : predictionResult ? (
-                      <p className="mt-1 text-lg font-bold font-mono text-teal-400">
+                      <p className="mt-1 text-2xl font-bold font-mono tracking-tight text-[#3C6849]">
                         {predictionResult.predicted_travel_time_s.toFixed(1)}s
                       </p>
                     ) : (
-                      <p className="mt-1.5 text-xs font-medium text-muted-foreground italic">
-                        Not estimated for this strategy
+                      <p className="mt-2 text-xs font-medium text-[#686B60] italic">
+                        Distance-only mode
                       </p>
                     )}
                   </div>
@@ -1295,47 +1595,79 @@ export function CampusMap() {
 
                 {/* Strategy-Specific Notices */}
                 {strategy === "emergency" && emergencyResult && (
-                  <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-muted-foreground">
-                    <div className="font-medium text-blue-300">Emergency-Aware Status</div>
-                    <p className="mt-1">
+                  <div className="rounded-lg border border-[#B77A26]/30 bg-[#FAF2E4]/60 p-3 text-[#1A1D14]">
+                    <div className="font-semibold text-[#7A4F13]">Emergency Avoidance Active</div>
+                    <p className="mt-1 text-[#46483E]">
                       Active Emergencies: {emergencyResult.active_emergency_ids.length} · Blocked Nodes:{" "}
                       {emergencyResult.blocked_node_count} · Blocked Edges: {emergencyResult.blocked_edge_count}
                     </p>
-                    <p className="mt-1 text-[11px] text-muted-foreground/80">
+                    <p className="mt-1 text-[11px] text-[#686B60]">
                       Risk weighting applied: {String(emergencyResult.risk_weighting_applied)} ({emergencyResult.risk_weighting_status})
                     </p>
                   </div>
                 )}
 
                 {strategy === "evacuation" && evacuationResult && (
-                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-                    <div className="font-semibold text-emerald-300">
-                      Selected Exit: {evacuationResult.selected_exit_name || "None"}
+                  <div
+                    className={`rounded-lg border p-3.5 text-[#1A1D14] ${
+                      evacuationResult.status === "no_route"
+                        ? "border-[#BA1A1A]/30 bg-[#FDF2F0]"
+                        : evacuationResult.blocked_edge_count && evacuationResult.blocked_edge_count > 0
+                        ? "border-[#B77A26]/30 bg-[#FAF2E4]/60"
+                        : "border-[#3C6849]/25 bg-[#E6EFE8]/40"
+                    }`}
+                  >
+                    <div
+                      className={`font-semibold ${
+                        evacuationResult.status === "no_route"
+                          ? "text-[#BA1A1A]"
+                          : evacuationResult.blocked_edge_count && evacuationResult.blocked_edge_count > 0
+                          ? "text-[#7A4F13]"
+                          : "text-[#244f32]"
+                      }`}
+                    >
+                      {evacuationResult.status === "no_route"
+                        ? "No Reachable Exit Available"
+                        : evacuationResult.blocked_edge_count && evacuationResult.blocked_edge_count > 0
+                        ? `Alternate Route Selected: ${evacuationResult.selected_exit_name || "None"}`
+                        : `Selected Exit: ${evacuationResult.selected_exit_name || "None"}`}
                     </div>
-                    <p className="mt-1 text-muted-foreground">
-                      Objective: {evacuationResult.selection_objective}
+                    <p className="mt-1 text-[#46483E]">
+                      {evacuationResult.status === "no_route"
+                        ? "All candidate exits are currently unreachable or blocked under active hazard conditions. No valid path exists."
+                        : evacuationResult.blocked_edge_count && evacuationResult.blocked_edge_count > 0
+                        ? `Hazard avoidance active: ${evacuationResult.blocked_edge_count} blocked edge(s) avoided. Route recalculated to nearest reachable exit.`
+                        : `Objective: ${evacuationResult.selection_objective}`}
                     </p>
-                    <div className="mt-2 flex flex-col gap-1 border-t border-border/30 pt-2">
-                      <span className="font-medium text-foreground">Evaluated Exits:</span>
+                    <div className="mt-2.5 flex flex-col gap-1.5 border-t border-[#DFDFD4] pt-2.5">
+                      <span className="font-semibold text-[#1A1D14]">Candidate Exit Evaluation:</span>
                       {evacuationResult.evaluated_exits.map((ex) => (
                         <div key={ex.exit_id} className="flex items-center justify-between text-[11px]">
-                          <span>{ex.name}</span>
-                          <span className={ex.reachable ? "text-emerald-400 font-mono" : "text-red-400"}>
-                            {ex.reachable ? `${ex.distance_m?.toFixed(1)}m` : `Excluded (${ex.exclusion_reason})`}
+                          <span className="font-medium text-[#1A1D14]">{ex.name}</span>
+                          <span
+                            className={
+                              ex.reachable
+                                ? "font-mono font-semibold text-[#3C6849]"
+                                : "font-mono text-[#BA1A1A]"
+                            }
+                          >
+                            {ex.reachable
+                              ? `${ex.distance_m?.toFixed(1)}m`
+                              : `Excluded (${ex.exclusion_reason || "unreachable"})`}
                           </span>
                         </div>
                       ))}
                     </div>
-                    <p className="mt-2 text-[10px] text-muted-foreground/70 italic">
+                    <p className="mt-2.5 text-[10px] text-[#686B60] italic">
                       {evacuationResult.safety_notice}
                     </p>
                   </div>
                 )}
 
                 {strategy === "congestion" && congestionResult && (
-                  <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 text-muted-foreground">
-                    <div className="font-medium text-purple-300">Congestion Scenario Results</div>
-                    <p className="mt-1">
+                  <div className="rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-3 text-[#1A1D14]">
+                    <div className="font-semibold text-[#1A1D14]">Congestion Scenario Analysis</div>
+                    <p className="mt-1 text-[#686B60]">
                       Mode: {congestionResult.data_mode} · Live sensors:{" "}
                       {String(congestionResult.live_crowd_measurements_used)}
                     </p>
@@ -1343,82 +1675,127 @@ export function CampusMap() {
                 )}
 
                 {strategy === "prediction" && predictionResult && (
-                  <div className="rounded-lg border border-teal-500/20 bg-teal-500/5 p-3 text-muted-foreground">
-                    <div className="font-medium text-teal-300">
-                      ML Model: {predictionResult.model_version}
+                  <div className="rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-3 text-[#1A1D14]">
+                    <div className="font-semibold text-[#57603A]">
+                      ML Travel-Time Model ({predictionResult.model_version})
                     </div>
-                    <p className="mt-1">
-                      Training data: {predictionResult.training_data_type} · Features:{" "}
+                    <p className="mt-1 text-[#686B60]">
+                      Training Data: {predictionResult.training_data_type} · Features Evaluated:{" "}
                       {Object.keys(predictionResult.features).length}
                     </p>
-                    <p className="mt-1 text-[11px] text-muted-foreground/80 italic">
+                    <div className="mt-2.5 rounded border border-[#B77A26]/30 bg-[#FAF2E4] p-2 text-[11px] text-[#7A4F13]">
+                      <span className="font-semibold">Model Governance Notice: </span>
                       {predictionResult.validation_limitation}
-                    </p>
+                    </div>
                   </div>
                 )}
 
                 {/* Ordered Path Steps */}
-                <div>
-                  <span className="font-semibold text-foreground">Path Sequence ({activePathNodeIds.length} Nodes)</span>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
-                    {activePathNodeIds.map((id, index) => {
-                      const node = getNodeById(id);
-                      return (
-                        <React.Fragment key={id}>
-                          <span
-                            onClick={() => handleNodeClick(node!)}
-                            className="cursor-pointer rounded bg-muted/60 px-2 py-0.5 hover:bg-emerald-500/20 hover:text-emerald-300"
-                          >
-                            {node?.code || id.slice(0, 8)}
-                          </span>
-                          {index < activePathNodeIds.length - 1 && (
-                            <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
+                {activePathNodeIds.length > 0 && (
+                  <div>
+                    <span className="font-semibold text-[#1A1D14]">Waypoint Path Sequence ({activePathNodeIds.length} Nodes)</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+                      {activePathNodeIds.map((id, index) => {
+                        const node = getNodeById(id);
+                        return (
+                          <React.Fragment key={id}>
+                            <span
+                              onClick={() => handleNodeClick(node!)}
+                              className="cursor-pointer rounded border border-[#DFDFD4] bg-[#EEEDE5] px-2 py-0.5 text-[#1A1D14] hover:bg-[#57603A] hover:text-white transition-colors"
+                            >
+                              {node?.code || id.slice(0, 8)}
+                            </span>
+                            {index < activePathNodeIds.length - 1 && (
+                              <ArrowRight className="h-3 w-3 text-[#C7C7BA]" />
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Step Breakdown Table */}
-                <div>
-                  <span className="font-semibold text-foreground">Step Details</span>
-                  <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-border/30">
-                    <table className="w-full text-left text-[11px]">
-                      <thead className="bg-muted/40 font-medium text-muted-foreground sticky top-0">
-                        <tr>
-                          <th className="p-2">#</th>
-                          <th className="p-2">From → To</th>
-                          <th className="p-2 text-right">Distance</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/20">
-                        {(shortestResult?.steps ||
-                          emergencyResult?.steps ||
-                          evacuationResult?.steps ||
-                          congestionResult?.steps ||
-                          []).map((step, idx) => {
-                          const fromN = getNodeById(step.from_node_id);
-                          const toN = getNodeById(step.to_node_id);
-                          return (
-                            <tr key={`${step.edge_id}-${idx}`} className="hover:bg-muted/20">
-                              <td className="p-2 font-mono text-muted-foreground">{idx + 1}</td>
-                              <td className="p-2 font-mono">
-                                {fromN?.code} → {toN?.code}
-                              </td>
-                              <td className="p-2 text-right font-mono text-emerald-400">
-                                {step.distance_m}m
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                {activePathNodeIds.length > 1 && (
+                  <div>
+                    <span className="font-semibold text-[#1A1D14]">Segment Breakdown</span>
+                    <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-[#DFDFD4]">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-[#FAF9F5] font-semibold text-[#686B60] sticky top-0 border-b border-[#DFDFD4]">
+                          <tr>
+                            <th className="p-2">#</th>
+                            <th className="p-2">Traversed Arc</th>
+                            <th className="p-2 text-right">Distance</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#DFDFD4]">
+                          {(shortestResult?.steps ||
+                            emergencyResult?.steps ||
+                            evacuationResult?.steps ||
+                            congestionResult?.steps ||
+                            []).map((step, idx) => {
+                            const fromN = getNodeById(step.from_node_id);
+                            const toN = getNodeById(step.to_node_id);
+                            return (
+                              <tr key={`${step.edge_id}-${idx}`} className="hover:bg-[#FAF9F5] transition-colors">
+                                <td className="p-2 font-mono text-[#686B60]">{idx + 1}</td>
+                                <td className="p-2 font-mono text-[#1A1D14]">
+                                  {fromN?.code} → {toN?.code}
+                                </td>
+                                <td className="p-2 text-right font-mono font-semibold text-[#3C6849]">
+                                  {step.distance_m}m
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           )}
+
+          {/* Authoritative Campus Graph Diagnostics */}
+          <Card className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+            <CardHeader className="border-b border-[#DFDFD4] pb-2.5 pt-3 px-5">
+              <CardTitle className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+                Authoritative Graph Telemetry
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 text-xs">
+              <div className="grid grid-cols-2 gap-3 font-mono">
+                <div className="rounded border border-[#DFDFD4] bg-[#FAF9F5] p-2.5">
+                  <span className="text-[10px] text-[#686B60] uppercase block">Graph Nodes</span>
+                  <span className="text-base font-bold text-[#1A1D14]">
+                    {graphSummary?.node_count || DEMO_NODES.length}
+                  </span>
+                </div>
+                <div className="rounded border border-[#DFDFD4] bg-[#FAF9F5] p-2.5">
+                  <span className="text-[10px] text-[#686B60] uppercase block">Stored Edges</span>
+                  <span className="text-base font-bold text-[#1A1D14]">
+                    {graphSummary?.edge_count || DEMO_EDGES.length}
+                  </span>
+                </div>
+                <div className="rounded border border-[#DFDFD4] bg-[#FAF9F5] p-2.5">
+                  <span className="text-[10px] text-[#686B60] uppercase block">Traversal Arcs</span>
+                  <span className="text-base font-bold text-[#1A1D14]">
+                    {graphSummary?.arc_count || 39}
+                  </span>
+                </div>
+                <div className="rounded border border-[#DFDFD4] bg-[#FAF9F5] p-2.5">
+                  <span className="text-[10px] text-[#686B60] uppercase block">Emergency Exits</span>
+                  <span className="text-xs font-bold text-[#3C6849]">
+                    {graphSummary?.exit_count || 3} Active Exits
+                  </span>
+                </div>
+              </div>
+              <p className="mt-3 text-[11px] text-[#686B60]">
+                Demo Campus · Edge 21 Active Walkway · {graphSummary?.bidirectional_edge_count || 18} Bidirectional · {graphSummary?.directed_edge_count || 3} Directed Arcs
+              </p>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

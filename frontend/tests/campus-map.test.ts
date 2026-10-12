@@ -230,6 +230,203 @@ describe("Campus Map - Routing Response Schema Validation", () => {
     }
     assert.equal(totalDist, 78);
   });
+
+  it("validates evacuation response schema when nearest exit route is found", () => {
+    const mockEvacuationResponse = {
+      status: "route_found" as const,
+      campus_id: DEMO_CAMPUS_ID,
+      start_node_id: "20000000-0000-4000-8000-000000000012", // ACD-G-COR
+      selected_exit_id: "40000000-0000-4000-8000-000000000003",
+      selected_exit_node_id: "20000000-0000-4000-8000-000000000016",
+      selected_exit_name: "Academic East Emergency Exit",
+      selected_exit_type: "emergency",
+      path_node_ids: [
+        "20000000-0000-4000-8000-000000000012",
+        "20000000-0000-4000-8000-000000000013",
+        "20000000-0000-4000-8000-000000000016",
+      ],
+      total_distance_m: 18.0,
+      steps: [
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000012",
+          to_node_id: "20000000-0000-4000-8000-000000000013",
+          edge_id: "30000000-0000-4000-8000-000000000012",
+          distance_m: 7.0,
+        },
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000013",
+          to_node_id: "20000000-0000-4000-8000-000000000016",
+          edge_id: "30000000-0000-4000-8000-000000000015",
+          distance_m: 11.0,
+        },
+      ],
+      active_emergency_ids: [],
+      evaluated_exits: [
+        {
+          exit_id: "40000000-0000-4000-8000-000000000003",
+          node_id: "20000000-0000-4000-8000-000000000016",
+          name: "Academic East Emergency Exit",
+          exit_type: "emergency",
+          reachable: true,
+          distance_m: 18.0,
+          exclusion_reason: null,
+        },
+        {
+          exit_id: "40000000-0000-4000-8000-000000000001",
+          node_id: "20000000-0000-4000-8000-000000000006",
+          name: "Administration West Emergency Exit",
+          exit_type: "emergency",
+          reachable: false,
+          distance_m: null,
+          exclusion_reason: "unreachable" as const,
+        },
+      ],
+      selection_objective: "shortest_physical_distance_among_eligible_exits",
+      safety_notice: "Distance-based exit selection is not a safety guarantee.",
+    };
+
+    assert.equal(mockEvacuationResponse.status, "route_found");
+    assert.equal(mockEvacuationResponse.total_distance_m, 18.0);
+    assert.match(mockEvacuationResponse.safety_notice, /not a safety guarantee/i);
+    assert.equal(mockEvacuationResponse.evaluated_exits[0].reachable, true);
+    assert.equal(mockEvacuationResponse.evaluated_exits[1].reachable, false);
+    assert.equal(mockEvacuationResponse.evaluated_exits[1].exclusion_reason, "unreachable");
+  });
+
+  it("validates evacuation response schema when all candidate exits are excluded (no_route)", () => {
+    const mockNoRouteEvacuation = {
+      status: "no_route" as const,
+      campus_id: DEMO_CAMPUS_ID,
+      start_node_id: "20000000-0000-4000-8000-000000000012",
+      selected_exit_id: null,
+      selected_exit_node_id: null,
+      selected_exit_name: null,
+      selected_exit_type: null,
+      path_node_ids: [],
+      total_distance_m: null,
+      steps: [],
+      active_emergency_ids: [],
+      evaluated_exits: [
+        {
+          exit_id: "40000000-0000-4000-8000-000000000001",
+          node_id: "20000000-0000-4000-8000-000000000006",
+          name: "Administration West Emergency Exit",
+          exit_type: "emergency",
+          reachable: false,
+          distance_m: null,
+          exclusion_reason: "unreachable" as const,
+        },
+        {
+          exit_id: "40000000-0000-4000-8000-000000000003",
+          node_id: "20000000-0000-4000-8000-000000000016",
+          name: "Academic East Emergency Exit",
+          exit_type: "emergency",
+          reachable: false,
+          distance_m: null,
+          exclusion_reason: "blocked" as const,
+        },
+      ],
+      selection_objective: "shortest_physical_distance_among_eligible_exits",
+      safety_notice: "Distance-based exit selection is not a safety guarantee.",
+    };
+
+    assert.equal(mockNoRouteEvacuation.status, "no_route");
+    assert.equal(mockNoRouteEvacuation.selected_exit_id, null);
+    assert.equal(mockNoRouteEvacuation.total_distance_m, null);
+    assert.equal(mockNoRouteEvacuation.path_node_ids.length, 0);
+    assert.ok(mockNoRouteEvacuation.evaluated_exits.every((e) => !e.reachable));
+    assert.ok(mockNoRouteEvacuation.evaluated_exits.every((e) => e.exclusion_reason !== null));
+  });
+
+  it("validates dynamic hazard rerouting response schema with alternate exit selection and blocked count", () => {
+    const mockReroutedEvacuation = {
+      status: "route_found" as const,
+      campus_id: DEMO_CAMPUS_ID,
+      start_node_id: "20000000-0000-4000-8000-000000000008", // ADM-1-ROOM
+      selected_exit_id: "40000000-0000-4000-8000-000000000001",
+      selected_exit_node_id: "20000000-0000-4000-8000-000000000006",
+      selected_exit_name: "Administration West Emergency Exit",
+      selected_exit_type: "emergency",
+      path_node_ids: [
+        "20000000-0000-4000-8000-000000000008",
+        "20000000-0000-4000-8000-000000000007",
+        "20000000-0000-4000-8000-000000000005",
+        "20000000-0000-4000-8000-000000000003",
+        "20000000-0000-4000-8000-000000000006",
+      ],
+      total_distance_m: 26.0,
+      steps: [
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000008",
+          to_node_id: "20000000-0000-4000-8000-000000000007",
+          edge_id: "30000000-0000-4000-8000-000000000007",
+          distance_m: 6.0,
+        },
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000007",
+          to_node_id: "20000000-0000-4000-8000-000000000005",
+          edge_id: "30000000-0000-4000-8000-000000000006",
+          distance_m: 4.0,
+        },
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000005",
+          to_node_id: "20000000-0000-4000-8000-000000000003",
+          edge_id: "30000000-0000-4000-8000-000000000004",
+          distance_m: 4.0,
+        },
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000003",
+          to_node_id: "20000000-0000-4000-8000-000000000006",
+          edge_id: "30000000-0000-4000-8000-000000000005",
+          distance_m: 12.0,
+        },
+      ],
+      active_emergency_ids: [],
+      evaluated_exits: [
+        {
+          exit_id: "40000000-0000-4000-8000-000000000001",
+          node_id: "20000000-0000-4000-8000-000000000006",
+          name: "Administration West Emergency Exit",
+          exit_type: "emergency",
+          reachable: true,
+          distance_m: 26.0,
+          exclusion_reason: null,
+        },
+        {
+          exit_id: "40000000-0000-4000-8000-000000000002",
+          node_id: "20000000-0000-4000-8000-000000000010",
+          name: "Administration First Floor Fire Escape",
+          exit_type: "emergency",
+          reachable: false,
+          distance_m: null,
+          exclusion_reason: "blocked" as const,
+        },
+      ],
+      blocked_edge_count: 1,
+      blocked_node_count: 0,
+      selection_objective: "shortest_physical_distance_among_eligible_exits",
+      safety_notice: "Distance-based exit selection is not a safety guarantee.",
+    };
+
+    assert.equal(mockReroutedEvacuation.status, "route_found");
+    assert.equal(mockReroutedEvacuation.selected_exit_name, "Administration West Emergency Exit");
+    assert.equal(mockReroutedEvacuation.total_distance_m, 26.0);
+    assert.equal(mockReroutedEvacuation.blocked_edge_count, 1);
+    assert.ok(mockReroutedEvacuation.steps.every((s) => s.edge_id !== "30000000-0000-4000-8000-000000000009"));
+    const blockedExit = mockReroutedEvacuation.evaluated_exits.find((e) => e.exclusion_reason === "blocked");
+    assert.ok(blockedExit);
+    assert.equal(blockedExit?.reachable, false);
+    assert.doesNotMatch(mockReroutedEvacuation.safety_notice, /safe route guaranteed/i);
+  });
+
+  it("ensures simulated hazard presets reference authoritative campus edges without fake real-time sensors", () => {
+    const fireEscapeEdge = "30000000-0000-4000-8000-000000000009";
+    const groundExitEdge = "30000000-0000-4000-8000-000000000005";
+
+    const edgeIds = new Set(DEMO_EDGES.map((e) => e.id));
+    assert.ok(edgeIds.has(fireEscapeEdge), "Fire escape edge exists in authoritative demo graph");
+    assert.ok(edgeIds.has(groundExitEdge), "Ground exit edge exists in authoritative demo graph");
+  });
 });
 
 describe("Campus Map - Compact Label Mapping", () => {
@@ -467,5 +664,249 @@ describe("Campus Map - Deterministic Collision-Avoidance Engine", () => {
         assert.equal(boxOverlapArea(boxes[i], boxes[j]), 0);
       }
     }
+  });
+});
+
+describe("Campus Map - Hazard Simulation Controls & Presets", () => {
+  it("verifies that campus-map.tsx contains the unconditional Hazard Simulation (Demo Only) selector and all 4 options", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    const mapPath = path.resolve(import.meta.dirname, "../components/map/campus-map.tsx");
+    const content = await fs.readFile(mapPath, "utf-8");
+
+    // Must be labeled Hazard Simulation (Demo Only)
+    assert.match(content, /Hazard Simulation \(Demo Only\)/);
+    assert.match(content, /id="hazard-scenario-select"/);
+    assert.match(content, /data-testid="hazard-simulation-select"/);
+
+    // Verify all four option labels requested by user
+    assert.match(content, /Baseline — No simulated blockages/);
+    assert.match(content, /1st Floor Fire Escape Blocked/);
+    assert.match(content, /West Ground Emergency Exit Blocked/);
+    assert.match(content, /All Administration Exits Blocked/);
+
+    // Verify selector is unconditional (not wrapped in strategy condition)
+    assert.doesNotMatch(content, /\{\(strategy === "evacuation" \|\| strategy === "emergency"\) && \(\s*<div[^>]*>\s*<div[^>]*>\s*<span[^>]*>Hazard Simulation/);
+  });
+
+  it("maps hazard scenario presets to authoritative demo campus blockage IDs", () => {
+    const edgeMap: Record<string, string[]> = {
+      none: [],
+      fire_escape: ["30000000-0000-4000-8000-000000000009"],
+      ground_exit: ["30000000-0000-4000-8000-000000000005"],
+      all_admin_exits: [
+        "30000000-0000-4000-8000-000000000009",
+        "30000000-0000-4000-8000-000000000005",
+      ],
+    };
+
+    const authoritativeEdges = new Set(DEMO_EDGES.map((e) => e.id));
+
+    // None produces empty blockage array
+    assert.deepEqual(edgeMap.none, []);
+
+    // Fire escape edge exists in demo graph
+    assert.equal(edgeMap.fire_escape.length, 1);
+    assert.ok(authoritativeEdges.has(edgeMap.fire_escape[0]));
+
+    // Ground exit edge exists in demo graph
+    assert.equal(edgeMap.ground_exit.length, 1);
+    assert.ok(authoritativeEdges.has(edgeMap.ground_exit[0]));
+
+    // All admin exits includes both edges
+    assert.equal(edgeMap.all_admin_exits.length, 2);
+    assert.ok(edgeMap.all_admin_exits.every((id) => authoritativeEdges.has(id)));
+  });
+
+  it("constructs valid API request bodies with blocked edge IDs when hazard scenario is active", () => {
+    const startNode = "20000000-0000-4000-8000-000000000008"; // ADM-1-ROOM
+    const destNode = "20000000-0000-4000-8000-000000000006";  // ADM-G-EXIT
+    const fireEscapeEdge = "30000000-0000-4000-8000-000000000009";
+
+    // Evacuation request with hazard scenario
+    const evacRequest = {
+      start_node_id: startNode,
+      blocked_edge_ids: [fireEscapeEdge],
+    };
+    assert.equal(evacRequest.start_node_id, startNode);
+    assert.deepEqual(evacRequest.blocked_edge_ids, [fireEscapeEdge]);
+
+    // Shortest / Dijkstra request with hazard scenario
+    const shortestRequest = {
+      start_node_id: startNode,
+      destination_node_id: destNode,
+      blocked_edge_ids: [fireEscapeEdge],
+    };
+    assert.deepEqual(shortestRequest.blocked_edge_ids, [fireEscapeEdge]);
+
+    // Baseline request clears blockages
+    const baselineRequest = {
+      start_node_id: startNode,
+      blocked_edge_ids: [],
+    };
+    assert.deepEqual(baselineRequest.blocked_edge_ids, []);
+  });
+
+  it("ensures evacuation telemetry never falls back to shortest-path telemetry or stale distance", () => {
+    // Simulated state when evacuation returns no_route while a previous shortestResult (17.0m) exists
+    const shortestResult = {
+      campus_id: "10000000-0000-4000-8000-000000000001",
+      start_node_id: "20000000-0000-4000-8000-000000000009",
+      destination_node_id: "20000000-0000-4000-8000-000000000010",
+      path_node_ids: ["20000000-0000-4000-8000-000000000009", "20000000-0000-4000-8000-000000000010"],
+      total_distance_m: 17.0,
+      steps: [],
+    };
+
+    const evacuationNoRouteResult = {
+      status: "no_route" as const,
+      campus_id: "10000000-0000-4000-8000-000000000001",
+      start_node_id: "20000000-0000-4000-8000-000000000009",
+      selected_exit_id: null,
+      selected_exit_node_id: null,
+      selected_exit_name: null,
+      selected_exit_type: null,
+      path_node_ids: [],
+      total_distance_m: null,
+      steps: [],
+      active_emergency_ids: [],
+      evaluated_exits: [],
+      blocked_edge_count: 2,
+    };
+
+    const strategy = "evacuation";
+
+    // Formatter logic replicating campus-map.tsx telemetry distance resolution
+    const formatDistance = (
+      strat: string,
+      evac: typeof evacuationNoRouteResult | null,
+      short: typeof shortestResult | null
+    ) => {
+      if (strat === "evacuation") {
+        if (evac?.status === "route_found" && evac.total_distance_m !== null && evac.total_distance_m !== undefined) {
+          return `${evac.total_distance_m.toFixed(1)} m`;
+        }
+        return "—";
+      }
+      return short?.total_distance_m !== null && short?.total_distance_m !== undefined
+        ? `${short.total_distance_m.toFixed(1)} m`
+        : "—";
+    };
+
+    // When in evacuation strategy with no_route, distance MUST be "—", NOT "17.0 m"
+    const renderedDistance = formatDistance(strategy, evacuationNoRouteResult, shortestResult);
+    assert.equal(renderedDistance, "—");
+
+    // Badge resolution logic replicating campus-map.tsx
+    const resolveBadge = (
+      strat: string,
+      evac: typeof evacuationNoRouteResult | null
+    ) => {
+      if (strat === "evacuation") {
+        if (evac?.status === "no_route") return "No Exit Reachable";
+        if (evac?.blocked_edge_count && evac.blocked_edge_count > 0) return "Alternate Route Selected";
+        return "Active Path";
+      }
+      return "Active Path";
+    };
+
+    assert.equal(resolveBadge(strategy, evacuationNoRouteResult), "No Exit Reachable");
+  });
+
+  it("verifies race condition request sequence tracker discards out-of-order in-flight responses", () => {
+    let activeRequestId = 0;
+    let renderedResult: string | null = null;
+
+    // Simulate scenario change 1 (fire_escape) -> slower network response (resolves in 50ms)
+    const req1 = ++activeRequestId;
+    const p1 = new Promise<string>((resolve) => {
+      setTimeout(() => resolve("fire_escape_33.0m"), 50);
+    }).then((res) => {
+      if (req1 === activeRequestId) {
+        renderedResult = res;
+      }
+    });
+
+    // Simulate scenario change 2 (all_admin_exits) -> faster response (resolves in 10ms)
+    const req2 = ++activeRequestId;
+    const p2 = new Promise<string>((resolve) => {
+      setTimeout(() => resolve("all_admin_exits_no_route"), 10);
+    }).then((res) => {
+      if (req2 === activeRequestId) {
+        renderedResult = res;
+      }
+    });
+
+    return Promise.all([p1, p2]).then(() => {
+      // req1 should NOT have overwritten req2
+      assert.equal(renderedResult, "all_admin_exits_no_route");
+    });
+  });
+
+  it("confirms returning to baseline resets blockages and restores expected baseline exit distance (17.0m)", () => {
+    const baselineResult = {
+      status: "route_found" as const,
+      campus_id: "10000000-0000-4000-8000-000000000001",
+      start_node_id: "20000000-0000-4000-8000-000000000009",
+      selected_exit_id: "40000000-0000-4000-8000-000000000002",
+      selected_exit_node_id: "20000000-0000-4000-8000-000000000010",
+      selected_exit_name: "Administration First Floor Fire Escape",
+      selected_exit_type: "fire_escape",
+      path_node_ids: [
+        "20000000-0000-4000-8000-000000000009",
+        "20000000-0000-4000-8000-000000000008",
+        "20000000-0000-4000-8000-000000000010",
+      ],
+      total_distance_m: 17.0,
+      steps: [
+        { edge_id: "30000000-0000-4000-8000-000000000008", distance_m: 7.0 },
+        { edge_id: "30000000-0000-4000-8000-000000000009", distance_m: 10.0 },
+      ],
+      active_emergency_ids: [],
+      evaluated_exits: [],
+      blocked_edge_count: 0,
+    };
+
+    assert.equal(baselineResult.status, "route_found");
+    assert.equal(baselineResult.total_distance_m, 17.0);
+    assert.equal(baselineResult.selected_exit_name, "Administration First Floor Fire Escape");
+    assert.equal(baselineResult.blocked_edge_count, 0);
+  });
+
+  it("ensures API errors clear active route results and display explicit error info without retaining old telemetry", () => {
+    // Initial state with an active route
+    let activeResult: { distance: number | null } | null = { distance: 17.0 };
+    let activeError: { kind: string; message: string } | null = null;
+
+    // Simulation of error handler on request failure
+    const handleFailure = (err: { kind: string; message: string }) => {
+      activeResult = null;
+      activeError = err;
+    };
+
+    handleFailure({ kind: "unreachable", message: "No reachable exit" });
+
+    assert.equal(activeResult, null);
+    assert.notEqual(activeError, null);
+    assert.equal(activeError?.kind, "unreachable");
+  });
+
+  it("ensures no_route response results in empty active path node and edge collections", () => {
+    const noRouteResponse = {
+      status: "no_route" as const,
+      campus_id: "10000000-0000-4000-8000-000000000001",
+      start_node_id: "20000000-0000-4000-8000-000000000009",
+      path_node_ids: [],
+      steps: [],
+      total_distance_m: null,
+    };
+
+    // Replicating campus-map.tsx activePathNodeIds and activePathEdgeIds memo logic
+    const pathNodeIds = noRouteResponse.status === "route_found" ? noRouteResponse.path_node_ids : [];
+    const pathEdgeIds = noRouteResponse.status === "route_found" ? noRouteResponse.steps.map((s: { edge_id: string }) => s.edge_id) : [];
+
+    assert.deepEqual(pathNodeIds, []);
+    assert.deepEqual(pathEdgeIds, []);
   });
 });

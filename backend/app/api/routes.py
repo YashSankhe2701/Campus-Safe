@@ -46,6 +46,22 @@ async def get_shortest_route(
         ) from exc
 
     try:
+        if request.blocked_edge_ids or request.blocked_node_ids:
+            from app.database.emergency_repository import EmergencyConditionSnapshot
+            from app.services.emergency_routing_service import build_unblocked_graph
+
+            conditions = EmergencyConditionSnapshot(
+                active_emergency_ids=(),
+                blocked_node_ids=tuple(str(n) for n in request.blocked_node_ids),
+                blocked_edge_ids=tuple(str(e) for e in request.blocked_edge_ids),
+            )
+            if (
+                str(request.start_node_id) in conditions.blocked_node_ids
+                or str(request.destination_node_id) in conditions.blocked_node_ids
+            ):
+                raise NoRouteFoundError("No route exists because an endpoint is blocked.")
+            graph = build_unblocked_graph(graph, conditions)
+
         return calculate_shortest_route(
             graph,
             request.start_node_id,

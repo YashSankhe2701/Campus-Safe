@@ -147,3 +147,37 @@ async def test_reverse_cross_building_route_blocked_by_one_way_exit(client):
 
     assert response.status_code == 404
     assert "No route" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_route_acd_cor_to_adm_exit_unreachable_by_design(client):
+    """Confirm ACD-G-COR cannot route to ADM-G-EXIT under Dijkstra or A*.
+
+    Authoritative topology:
+    - ADM-G-EXIT is an emergency egress door (is_exit=true).
+    - Edge 10 (ADM-G-EXIT -> DEMO-WALKWAY) is strictly one-way (bidirectional=false).
+    - Ingress into the Administration building from the central walkway is not permitted.
+    - ADM-G-EXIT has in-degree 1, originating solely from within Administration (ADM-G-JCT).
+    - Therefore, no directed path connects ACD-G-COR (or any Academic node) to ADM-G-EXIT.
+    """
+    if not settings.SUPABASE_DB_URL:
+        pytest.skip("SUPABASE_DB_URL is not configured")
+
+    acd_cor = "20000000-0000-4000-8000-000000000012"  # ACD-G-COR
+    adm_exit = "20000000-0000-4000-8000-000000000006"  # ADM-G-EXIT
+
+    # Dijkstra (Shortest physical distance)
+    dijkstra_response = await client.post(
+        f"/api/campuses/{CAMPUS_ID}/routes/shortest",
+        json={"start_node_id": acd_cor, "destination_node_id": adm_exit},
+    )
+    assert dijkstra_response.status_code == 404
+    assert "No route connects the requested nodes." in dijkstra_response.json()["detail"]
+
+    # A* routing
+    astar_response = await client.post(
+        f"/api/campuses/{CAMPUS_ID}/routes/astar",
+        json={"start_node_id": acd_cor, "destination_node_id": adm_exit},
+    )
+    assert astar_response.status_code == 404
+    assert "No route connects the requested nodes." in astar_response.json()["detail"]

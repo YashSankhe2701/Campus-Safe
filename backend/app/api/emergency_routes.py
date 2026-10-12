@@ -5,7 +5,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.routing import EmergencyAwareRouteResponse, ShortestRouteRequest
+from app.schemas.routing import (
+    EmergencyAwareRouteRequest,
+    EmergencyAwareRouteResponse,
+)
 from app.services.emergency_routing_service import (
     EmergencyConditionDataError,
     load_emergency_aware_route,
@@ -27,7 +30,7 @@ router = APIRouter(prefix="/api/campuses", tags=["routes"])
 )
 async def get_emergency_aware_route(
     campus_id: UUID,
-    request: ShortestRouteRequest,
+    request: EmergencyAwareRouteRequest,
 ) -> EmergencyAwareRouteResponse:
     """Avoid persisted active/current blockages while minimizing distance."""
     try:
@@ -35,6 +38,8 @@ async def get_emergency_aware_route(
             str(campus_id),
             request.start_node_id,
             request.destination_node_id,
+            blocked_edge_ids=request.blocked_edge_ids,
+            blocked_node_ids=request.blocked_node_ids,
         )
     except CampusNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Campus not found.") from exc

@@ -18,6 +18,9 @@ import {
   ExternalLink,
   ArrowRight,
   Layers,
+  Building2,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,321 +76,346 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<"map" | "system">("map");
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden">
-      {/* Background effects */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-1/2 -left-1/4 h-[800px] w-[800px] rounded-full bg-gradient-to-br from-emerald-500/[0.07] via-teal-500/[0.05] to-transparent blur-3xl" />
-        <div className="absolute -right-1/4 top-1/3 h-[600px] w-[600px] rounded-full bg-gradient-to-bl from-blue-500/[0.07] via-cyan-500/[0.05] to-transparent blur-3xl" />
-        <div className="absolute -bottom-1/4 left-1/3 h-[500px] w-[500px] rounded-full bg-gradient-to-tr from-violet-500/[0.05] via-purple-500/[0.03] to-transparent blur-3xl" />
-      </div>
-
-      {/* Header */}
-      <header className="relative z-10 border-b border-border/40 bg-background/60 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/25">
-              <Shield className="h-5 w-5 text-white" />
+    <div className="relative flex min-h-screen flex-col bg-[#F5F4EE] text-[#1A1D14]">
+      {/* Stitch Architectural Header */}
+      <header className="sticky top-0 z-50 bg-[#F5F4EE]/95 backdrop-blur-md border-b border-[#DFDFD4]">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 sm:px-6 h-16">
+          <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#57603A] text-white shadow-sm">
+              <Shield className="h-5 w-5" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">CAMPUS-SAFE</h1>
-              <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-                Emergency Management
-              </p>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold tracking-tight uppercase text-[#1A1D14]">
+                  CAMPUS-SAFE
+                </span>
+                <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-[#EEEDE5] text-[#46483E] border border-[#C7C7BA]">
+                  Enterprise Safety OS
+                </span>
+              </div>
+            </div>
+
+            {/* Live Backend & Graph Engine Health Status Pill */}
+            <div className="hidden md:flex items-center gap-1.5 bg-[#E6EFE8] border border-[#3C6849]/25 px-2.5 py-0.5 rounded-full">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  backend.status === "operational" ? "bg-[#3C6849]" : "bg-[#BA1A1A] animate-pulse"
+                }`}
+              />
+              <span className="text-[11px] font-medium text-[#244f32]">
+                {backend.status === "operational"
+                  ? "FastAPI & Graph Engine: Operational"
+                  : "Graph Engine: Disconnected"}
+              </span>
             </div>
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex items-center gap-1 rounded-xl border border-border/50 bg-muted/30 p-1 backdrop-blur-md">
+          <nav className="flex items-center gap-1 h-16">
             <button
               type="button"
               onClick={() => setActiveTab("map")}
-              className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3.5 h-full text-xs font-semibold transition-colors border-b-2 ${
                 activeTab === "map"
-                  ? "bg-emerald-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "border-[#57603A] bg-[#EEEDE5]/50 text-[#1A1D14]"
+                  : "border-transparent text-[#686B60] hover:text-[#1A1D14]"
               }`}
             >
               <MapIcon className="h-3.5 w-3.5" />
-              <span>Campus Map</span>
-              <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px] bg-emerald-600/30 text-emerald-200">
-                Phase 6
-              </Badge>
+              <span>Live Sector Map & Routing</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab("system")}
-              className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3.5 h-full text-xs font-semibold transition-colors border-b-2 ${
                 activeTab === "system"
-                  ? "bg-emerald-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "border-[#57603A] bg-[#EEEDE5]/50 text-[#1A1D14]"
+                  : "border-transparent text-[#686B60] hover:text-[#1A1D14]"
               }`}
             >
               <Server className="h-3.5 w-3.5" />
-              <span>System Health</span>
+              <span>System Health & Diagnostics</span>
             </button>
-          </div>
+          </nav>
 
-          <div className="flex items-center gap-3">
-            {info && (
-              <Badge variant="outline" className="hidden text-[10px] sm:inline-flex">
-                v{info.version}
-              </Badge>
-            )}
+          {/* Context, Campus Selector & Refresh */}
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="hidden lg:flex items-center gap-1.5 bg-[#EEEDE5] border border-[#DFDFD4] rounded px-2.5 py-1 text-xs text-[#1A1D14] font-medium">
+              <Building2 className="h-3.5 w-3.5 text-[#686B60]" />
+              <span>Demo Campus</span>
+            </div>
+
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={refresh}
-              className="gap-2 text-xs"
+              className="h-8 gap-1.5 text-xs border-[#DFDFD4] bg-[#FFFFFF] hover:bg-[#EEEDE5] text-[#1A1D14]"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Refresh
+              <RefreshCw className="h-3 w-3 text-[#686B60]" />
+              <span className="hidden sm:inline">Sync</span>
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="relative z-10 flex-1">
-        <div className="mx-auto max-w-7xl px-6 py-8">
-          {activeTab === "map" ? (
-            /* PHASE 6: INTERACTIVE CAMPUS MAP */
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Interactive Campus Map</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Schematic campus graph visualization, routing engine, and exit selection.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="border-emerald-500/30 text-emerald-400 bg-emerald-500/5">
-                    ● Graph APIs Active
-                  </Badge>
-                </div>
+      {/* Operational Sub-Header & Global Context Bar */}
+      <div className="w-full bg-[#FAF9F5] border-b border-[#DFDFD4] px-4 sm:px-6 py-2.5">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-[#3C6849]" />
+            <span className="font-semibold text-[#1A1D14]">Central Operations Console</span>
+            <span className="text-[#C7C7BA]">·</span>
+            <span className="text-[#686B60]">Authoritative Topology: 21 Nodes · 21 Edges · 3 Exits · 1 Assembly Point</span>
+          </div>
+
+          <div className="flex items-center gap-3 text-[11px] font-mono text-[#686B60]">
+            <span>Database: {database.status === "operational" ? "PostgreSQL Connected" : "Connecting..."}</span>
+            {info && (
+              <>
+                <span className="text-[#C7C7BA]">·</span>
+                <span>API v{info.version}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <main className="relative z-10 mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
+        {activeTab === "map" ? (
+          <CampusMap />
+        ) : (
+          <div className="space-y-8">
+            {/* System Overview Hero Section */}
+            <section className="rounded-xl border border-[#DFDFD4] bg-[#FFFFFF] p-8 text-center shadow-xs">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#EEEDE5] text-[#57603A]">
+                <Shield className="h-6 w-6" />
+              </div>
+              <h2 className="mb-2 text-2xl font-bold tracking-tight text-[#1A1D14] sm:text-3xl">
+                CAMPUS-SAFE Enterprise Safety OS
+              </h2>
+              <p className="mx-auto max-w-2xl text-sm leading-relaxed text-[#686B60]">
+                AI-assisted smart campus emergency operations and evacuation management platform.
+                Combines authoritative campus graph topology, safety-constrained pathfinding,
+                and machine-learning travel-time estimations.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
+                <span className="rounded bg-[#EEEDE5] px-2.5 py-1 font-medium text-[#46483E]">
+                  21 Graph Nodes
+                </span>
+                <span className="rounded bg-[#EEEDE5] px-2.5 py-1 font-medium text-[#46483E]">
+                  21 Authoritative Edges
+                </span>
+                <span className="rounded bg-[#EEEDE5] px-2.5 py-1 font-medium text-[#46483E]">
+                  Ground & 1st Floor Topology
+                </span>
+                <span className="rounded bg-[#E6EFE8] px-2.5 py-1 font-medium text-[#244f32]">
+                  Dijkstra · A* · Hazard-Aware Routing
+                </span>
+              </div>
+            </section>
+
+            {/* System Status Section */}
+            <section>
+              <div className="mb-3 flex items-center gap-2">
+                <Server className="h-4 w-4 text-[#686B60]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+                  Core Service Telemetry
+                </h3>
               </div>
 
-              <CampusMap />
-            </div>
-          ) : (
-            /* SYSTEM STATUS & ARCHITECTURE (FOUNDATION) */
-            <div className="flex flex-col gap-12">
-              {/* Hero Section */}
-              <section className="text-center">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border/50 bg-muted/30 px-4 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur-sm">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Foundation Phase — v0.1.0
-                </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <StatusCard
+                  title="FastAPI Graph Engine"
+                  status={backend.status}
+                  message={
+                    backend.data
+                      ? `${backend.data.service} — v${backend.data.version}`
+                      : backend.error || "Checking connection..."
+                  }
+                  details={
+                    backend.data
+                      ? "FastAPI server active with NetworkX graph routing"
+                      : backend.error
+                      ? "Cannot reach the API server"
+                      : undefined
+                  }
+                />
+                <StatusCard
+                  title="Supabase Database"
+                  status={database.status}
+                  message={
+                    database.data
+                      ? `${database.data.database} — ${database.data.status}`
+                      : database.error || "Checking connection..."
+                  }
+                  details={
+                    database.data?.message ||
+                    (database.data?.status === "ok"
+                      ? "Supabase PostgreSQL connected"
+                      : database.error
+                      ? "Cannot reach the database"
+                      : undefined)
+                  }
+                />
+              </div>
+            </section>
 
-                <h2 className="mb-3 text-3xl font-bold tracking-tight sm:text-4xl">
-                  <span className="bg-gradient-to-r from-foreground via-foreground/90 to-foreground/70 bg-clip-text text-transparent">
-                    CAMPUS
-                  </span>
-                  <span className="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
-                    -SAFE
-                  </span>
-                </h2>
+            {/* Architecture Overview */}
+            <section>
+              <div className="mb-3 flex items-center gap-2">
+                <Activity className="h-4 w-4 text-[#686B60]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+                  System Architecture
+                </h3>
+              </div>
 
-                <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                  AI-powered emergency response and dynamic evacuation management
-                  for smart campuses. Real-time monitoring, intelligent routing, and
-                  predictive analytics for safer educational environments.
-                </p>
-              </section>
-
-              {/* System Status Section */}
-              <section>
-                <div className="mb-4 flex items-center gap-2">
-                  <Server className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-                    System Status
-                  </h3>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <StatusCard
-                    title="Backend Status"
-                    status={backend.status}
-                    message={
-                      backend.data
-                        ? `${backend.data.service} — v${backend.data.version}`
-                        : backend.error || "Checking connection..."
-                    }
-                    details={
-                      backend.data
-                        ? "FastAPI server responding"
-                        : backend.error
-                        ? "Cannot reach the API server"
-                        : undefined
-                    }
-                  />
-                  <StatusCard
-                    title="Database Status"
-                    status={database.status}
-                    message={
-                      database.data
-                        ? `${database.data.database} — ${database.data.status}`
-                        : database.error || "Checking connection..."
-                    }
-                    details={
-                      database.data?.message ||
-                      (database.data?.status === "ok"
-                        ? "Supabase PostgreSQL connected"
-                        : database.error
-                        ? "Cannot reach the database"
-                        : undefined)
-                    }
-                  />
-                </div>
-              </section>
-
-              {/* Architecture Overview */}
-              <section>
-                <div className="mb-4 flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-                    Architecture
-                  </h3>
-                </div>
-
-                <Card className="border border-border/40 bg-card/30 backdrop-blur-sm">
-                  <CardContent className="p-6">
-                    <div className="grid gap-6 sm:grid-cols-3">
-                      {/* Frontend */}
-                      <div className="flex flex-col items-center gap-3 rounded-xl border border-border/30 bg-background/40 p-6 text-center transition-all hover:border-emerald-500/30 hover:bg-background/60">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/10 to-cyan-500/10 text-blue-400">
-                          <Server className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <p className="font-semibold">Next.js Frontend</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            TypeScript · App Router · Tailwind
-                          </p>
-                        </div>
+              <Card className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+                <CardContent className="p-6">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    {/* Frontend */}
+                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-5 text-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#EEEDE5] text-[#57603A]">
+                        <Server className="h-5 w-5" />
                       </div>
-
-                      {/* Backend */}
-                      <div className="flex flex-col items-center gap-3 rounded-xl border border-border/30 bg-background/40 p-6 text-center transition-all hover:border-emerald-500/30 hover:bg-background/60">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/10 to-teal-500/10 text-emerald-400">
-                          <Zap className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <p className="font-semibold">FastAPI Backend</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Python · Pydantic · REST API
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Database */}
-                      <div className="flex flex-col items-center gap-3 rounded-xl border border-border/30 bg-background/40 p-6 text-center transition-all hover:border-emerald-500/30 hover:bg-background/60">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 text-violet-400">
-                          <Database className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <p className="font-semibold">Supabase</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            PostgreSQL · Realtime · Auth
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground/50">
-                      <span>Frontend</span>
-                      <ArrowRight className="h-3 w-3" />
-                      <span>API</span>
-                      <ArrowRight className="h-3 w-3" />
-                      <span>Database</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              </section>
-
-              {/* Upcoming Modules */}
-              <section>
-                <div className="mb-4 flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-                    Project Roadmap
-                  </h3>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {FUTURE_MODULES.map((module) => {
-                    const Icon = module.icon;
-                    return (
-                      <Card
-                        key={module.title}
-                        className="group border border-border/30 bg-card/20 backdrop-blur-sm transition-all duration-300 hover:bg-card/40 hover:shadow-md"
-                      >
-                        <CardHeader className="pb-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                              <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-emerald-400" />
-                              <CardTitle className="text-sm">{module.title}</CardTitle>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] font-semibold tracking-wider opacity-50"
-                            >
-                              Phase {module.phase}
-                            </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <CardDescription className="text-xs leading-relaxed">
-                            {module.description}
-                          </CardDescription>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              </section>
-
-              {/* Quick Links */}
-              {info && (
-                <section>
-                  <Card className="border border-border/30 bg-gradient-to-r from-emerald-500/5 via-teal-500/5 to-cyan-500/5 backdrop-blur-sm">
-                    <CardContent className="flex flex-col items-center gap-4 p-6 sm:flex-row sm:justify-between">
                       <div>
-                        <p className="font-semibold">
-                          {info.project} API Documentation
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {info.environment} environment · {info.api_status}
+                        <p className="text-sm font-semibold text-[#1A1D14]">Next.js Frontend</p>
+                        <p className="mt-1 text-xs text-[#686B60]">
+                          TypeScript · App Router · Tailwind CSS
                         </p>
                       </div>
-                      {API_BASE_URL && (
-                        <a
-                          href={`${API_BASE_URL}/docs`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <Button variant="outline" size="sm" className="gap-2">
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Open API Docs
-                          </Button>
-                        </a>
-                      )}
-                    </CardContent>
-                  </Card>
-                </section>
-              )}
-            </div>
-          )}
-        </div>
+                    </div>
+
+                    {/* Backend */}
+                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-5 text-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#E6EFE8] text-[#3C6849]">
+                        <Zap className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#1A1D14]">FastAPI Backend</p>
+                        <p className="mt-1 text-xs text-[#686B60]">
+                          Python · Pydantic · NetworkX Graph
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Database */}
+                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-5 text-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#FAF2E4] text-[#B77A26]">
+                        <Database className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#1A1D14]">Supabase PostgreSQL</p>
+                        <p className="mt-1 text-xs text-[#686B60]">
+                          PostgreSQL · Realtime Engine · Auth
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-[#686B60]">
+                    <span>Frontend Client</span>
+                    <ArrowRight className="h-3 w-3 text-[#C7C7BA]" />
+                    <span>FastAPI REST & WebSocket</span>
+                    <ArrowRight className="h-3 w-3 text-[#C7C7BA]" />
+                    <span>Supabase DB</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* Upcoming Roadmap Modules */}
+            <section>
+              <div className="mb-3 flex items-center gap-2">
+                <Zap className="h-4 w-4 text-[#686B60]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+                  Project Roadmap & Functional Modules
+                </h3>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {FUTURE_MODULES.map((module) => {
+                  const Icon = module.icon;
+                  return (
+                    <Card
+                      key={module.title}
+                      className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs transition-shadow hover:shadow-sm"
+                    >
+                      <CardHeader className="p-4 pb-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Icon className="h-4 w-4 text-[#57603A]" />
+                            <CardTitle className="text-sm font-semibold text-[#1A1D14]">
+                              {module.title}
+                            </CardTitle>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className="border-[#DFDFD4] bg-[#EEEDE5] text-[10px] font-semibold text-[#46483E]"
+                          >
+                            Phase {module.phase}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-1">
+                        <CardDescription className="text-xs leading-relaxed text-[#686B60]">
+                          {module.description}
+                        </CardDescription>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* API Documentation Link */}
+            {info && (
+              <section>
+                <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-[#DFDFD4] bg-[#FFFFFF] p-6 sm:flex-row shadow-xs">
+                  <div>
+                    <p className="text-sm font-semibold text-[#1A1D14]">
+                      {info.project} API Documentation (Swagger / OpenAPI)
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#686B60]">
+                      {info.environment} environment · {info.api_status}
+                    </p>
+                  </div>
+                  {API_BASE_URL && (
+                    <a
+                      href={`${API_BASE_URL}/docs`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 border-[#DFDFD4] bg-[#FFFFFF] text-xs font-medium text-[#1A1D14] hover:bg-[#EEEDE5]"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 text-[#57603A]" />
+                        Explore API Docs
+                      </Button>
+                    </a>
+                  )}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-border/30 bg-background/40 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <p className="text-xs text-muted-foreground/60">
-            CAMPUS-SAFE · Phase 6 Interactive Campus Map
-          </p>
-          <p className="text-xs text-muted-foreground/40">
-            Next.js App Router · FastAPI · Supabase
+      {/* Stitch Architectural Footer */}
+      <footer className="border-t border-[#DFDFD4] bg-[#FAF9F5]">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 sm:px-6 py-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-[#1A1D14]">CAMPUS-SAFE</span>
+            <span className="text-[#C7C7BA]">·</span>
+            <span className="text-xs text-[#686B60]">
+              Enterprise Safety OS & Intelligent Campus Evacuation System
+            </span>
+          </div>
+          <p className="text-xs text-[#686B60]">
+            Next.js 15 App Router · FastAPI · NetworkX · Supabase PostgreSQL
           </p>
         </div>
       </footer>

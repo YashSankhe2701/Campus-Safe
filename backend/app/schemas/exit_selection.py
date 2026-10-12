@@ -3,7 +3,7 @@
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.routing import RouteStep
 
@@ -12,6 +12,8 @@ class ExitSelectionRequest(BaseModel):
     """Starting point used to evaluate all eligible campus exits."""
 
     start_node_id: UUID
+    blocked_edge_ids: list[UUID] = Field(default_factory=list)
+    blocked_node_ids: list[UUID] = Field(default_factory=list)
 
 
 class EvaluatedExit(BaseModel):
@@ -41,6 +43,8 @@ class ExitSelectionResponse(BaseModel):
     steps: list[RouteStep]
     active_emergency_ids: list[UUID]
     evaluated_exits: list[EvaluatedExit]
+    blocked_edge_count: int = 0
+    blocked_node_count: int = 0
     selection_objective: Literal["shortest_physical_distance_among_eligible_exits"] = (
         "shortest_physical_distance_among_eligible_exits"
     )

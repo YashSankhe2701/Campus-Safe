@@ -2,231 +2,242 @@
 
 **AI-Based Smart Campus Emergency Management System**
 
-> AI-powered emergency response and dynamic evacuation management for smart campuses.
+> Intelligent emergency response, multi-strategy graph routing, dynamic hazard-aware evacuation, and synthetic travel-time prediction for smart campuses.
 
-[![Phase](https://img.shields.io/badge/Phase-2%20Schema%20%26%20Graph-blue)]()
 [![Version](https://img.shields.io/badge/Version-0.1.0-green)]()
+[![Status](https://img.shields.io/badge/Status-Interactive%20Routing%20%26%20Evacuation-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)]()
 
 ---
 
 ## Overview
 
-CAMPUS-SAFE is a web-based intelligent emergency management system for educational campuses. The system will digitally model campuses, calculate safe evacuation routes, predict evacuation times using machine learning, and provide an emergency command dashboard with real-time status updates.
+CAMPUS-SAFE is an intelligent emergency management and navigation platform designed for educational campuses. It integrates physical campus topology modeling, multi-strategy routing algorithms, dynamic in-flight hazard rerouting, and offline-trained machine learning models to identify safe, unobstructed egress paths during emergencies.
 
-### Current Status: Phase 2 — Database Schema and Campus Graph Foundation
+### Implemented Capabilities
 
-The Supabase PostgreSQL schema, static campus graph, separate emergency-condition records, and synthetic demo campus are implemented through repository-managed SQL. Routing and AI/ML remain future phases.
+- **Interactive Campus Visualizer**: Vector SVG rendering with pan/zoom navigation, floor filtering (All Floors, Ground Floor, First Floor), telemetry cards, and responsive state indicators.
+- **Multi-Strategy Routing Engine**:
+  - *Shortest Physical Distance (Dijkstra)*: Classic shortest-path computation on weighted directed edges.
+  - *Heuristic Search (A\*)*: Euclidean heuristic accelerated path calculation.
+  - *Dynamic Hazard Evacuation (Exit Selection)*: Selects the nearest reachable exit while enforcing one-way egress directions and handling dynamic blockages.
+  - *Risk-Minimizing Emergency Avoidance*: Configurable multi-objective optimization balancing physical distance against active hazard severity.
+  - *Congestion-Aware Routing*: Evaluates real-time or simulated crowd densities to route around congested corridors.
+  - *ML Travel-Time Prediction*: Evaluates route characteristics using an offline Random Forest regressor trained on simulated crowd scenarios.
+- **Hazard Simulation Controls**: In-browser testing presets (Baseline, 1st Floor Fire Escape Blocked, West Ground Emergency Exit Blocked, All Administration Exits Blocked) to verify dynamic rerouting behavior.
+- **Categorized Error Diagnostics**: User-friendly diagnostics distinguish between unreachable destinations, backend network/CORS unavailability, invalid requests, and server outages.
 
-## Architecture
+---
+
+## System Architecture and Data Flow
 
 ```
-CAMPUS-SAFE User
-       │
-       ▼
-┌──────────────────┐
-│  Next.js Frontend │  ← TypeScript, App Router, Tailwind CSS, shadcn/ui
-└────────┬─────────┘
-         │ API Requests
-         ▼
-┌──────────────────┐
-│  FastAPI Backend   │  ← Python, Pydantic, REST API
-│  ┌──────┬───────┐  │
-│  │ App  │  AI   │  │
-│  │Logic │(future)│  │
-│  └──────┴───────┘  │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Supabase PostgreSQL│  ← Managed database, Realtime, Auth, Storage
-└──────────────────┘
+┌────────────────────────────────────────────────────────┐
+│                   Browser Client                       │
+│  Next.js 15 App Router · React · Tailwind CSS · SVG    │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            │ HTTPS / REST (lib/api.ts)
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│               FastAPI Application Gateway              │
+│  - Restrictive CORS (No credential wildcards)          │
+│  - Request Schema Validation (Pydantic / UUIDs)        │
+│  - Non-leaking Exception Handlers                      │
+└──────┬────────────────────┬────────────────────┬───────┘
+       │                    │                    │
+       ▼                    ▼                    ▼
+┌──────────────┐   ┌─────────────────┐   ┌────────────────┐
+│ Graph Engine │   │ Exit Selection  │   │ ML Prediction  │
+│ NetworkX     │   │ Dynamic Hazards │   │ Random Forest  │
+│ MultiDiGraph │   │ In-Memory Egress│   │ Scikit-Learn   │
+└──────┬───────┘   └────────┬────────┘   └────────┬───────┘
+       │                    │                     │
+       └────────────────────┼─────────────────────┘
+                            │
+                            │ Server-Side SQL Connection (psycopg)
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│              Supabase / PostgreSQL Database            │
+│  - 12 Tables with Row-Level Security (RLS) Enabled     │
+│  - Idempotent Versioned Migrations                     │
+│  - Authoritative Seed Topology (Nodes, Edges, Exits)   │
+└────────────────────────────────────────────────────────┘
 ```
+
+### Data Flow Lifecycle
+
+1. **Topology Ingestion**: Static campus geometry (campuses, buildings, floors, nodes, edges, exits) is seeded in PostgreSQL and loaded server-side into an in-memory NetworkX directed multigraph snapshot.
+2. **Pathfinding Request**: The user selects origin, destination (or evacuation mode), and routing strategy in the Next.js frontend.
+3. **Execution**: The FastAPI backend executes the requested graph algorithm. For evacuation routing, edge directionality and optional dynamic blockages (`blocked_edge_ids`, `blocked_node_ids`) are evaluated in-memory per request without mutating database state.
+4. **Telemetry & Visualization**: The frontend renders the calculated route, traversal sequence, distance, travel time, and candidate exit evaluation table.
+
+---
 
 ## Technology Stack
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | Next.js, TypeScript, App Router, Tailwind CSS, shadcn/ui, Lucide Icons |
-| **Backend** | Python, FastAPI, Pydantic |
-| **Database** | Supabase PostgreSQL |
-| **Deployment** | Vercel (frontend + backend), Supabase (database) |
-| **Future AI** | NetworkX, NumPy, Pandas, scikit-learn, A*, Dijkstra |
+| **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS, Lucide Icons |
+| **Backend** | Python 3.11, FastAPI, Pydantic, Uvicorn, NetworkX |
+| **Machine Learning** | Scikit-learn (Random Forest Regressor), Joblib, NumPy, Pandas |
+| **Database** | PostgreSQL via Supabase (Server-side psycopg connection pool) |
+| **Containerization** | Docker (python:3.11-slim) |
 
-## Project Structure
+---
 
-```
-campus-safe/
-├── frontend/              # Next.js application
-│   ├── app/               # App Router pages
-│   ├── components/        # React components (+ shadcn/ui)
-│   ├── lib/               # API client, utilities
-│   ├── hooks/             # Custom React hooks
-│   └── types/             # TypeScript types
-├── backend/               # FastAPI application
-│   ├── app/
-│   │   ├── main.py        # Entry point
-│   │   ├── api/           # Route handlers
-│   │   ├── core/          # Config, logging
-│   │   ├── models/        # Data models (future)
-│   │   ├── schemas/       # Pydantic schemas
-│   │   ├── services/      # Business logic (future)
-│   │   └── database/      # DB connection, repositories
-│   └── tests/             # Backend tests
-├── supabase/
-│   ├── migrations/        # Versioned PostgreSQL schema migrations
-│   ├── seed.sql           # Synthetic demo campus
-│   └── config.toml        # Supabase CLI project and seed configuration
-├── ai/                    # AI/ML modules (future)
-│   ├── routing/           # A*, Dijkstra (Phase 3)
-│   ├── optimization/      # Route optimization (Phase 6)
-│   ├── prediction/        # ML prediction (Phase 7)
-│   └── models/            # Trained models (Phase 7)
-├── data/                  # Data files (future)
-├── simulation/            # Evacuation simulation (future)
-├── docs/                  # Documentation
-├── tests/                 # Integration tests
-├── .env.example           # Environment template
-├── .gitignore             # Git ignore rules
-└── README.md              # This file
-```
-
-## Quick Start
+## Quick Start (Local Development)
 
 ### Prerequisites
 
-- **Node.js** 18+
+- **Node.js** 18+ (tested on Node.js 20+)
 - **Python** 3.11+
-- **npm** (comes with Node.js)
+- **Git**
 
-### 1. Clone & Configure
+### 1. Environment Setup
+
+Copy `.env.example` to `.env` at the root of the repository:
 
 ```bash
-git clone <repository-url>
-cd campus-safe
 cp .env.example .env
-# Edit .env with local configuration
 ```
 
-### 2. Start the Backend
+Configure your environment variables as described in the [Environment Variables](#environment-variables) section. **Never commit `.env` or sensitive credentials to Git.**
+
+### 2. Start the Backend (Port 8000)
 
 ```bash
 cd backend
 python -m venv .venv
 
-# Windows
-.venv\Scripts\activate
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
 
-# macOS/Linux
+# macOS / Linux
 source .venv/bin/activate
 
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-- Backend: **http://localhost:8000**
-- API Docs: **http://localhost:8000/docs**
+- API Base: `http://localhost:8000`
+- Swagger UI Documentation: `http://localhost:8000/docs`
+- Health Endpoint: `http://localhost:8000/api/health`
 
-### 3. Start the Frontend
+### 3. Start the Frontend (Port 3001)
+
+In a separate terminal:
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- -p 3001
 ```
 
-- Frontend: **http://localhost:3000**
+- Web Interface: `http://localhost:3001`
 
-## Supabase Setup
-
-1. Create a project at [supabase.com/dashboard](https://supabase.com/dashboard)
-2. Go to **Project Settings → API** for URL and keys
-3. Go to **Connect → Connection String → Transaction pooler** for the backend PostgreSQL URI
-4. Add values to your `.env` file
-
-### Apply Schema and Seed
-
-With the Supabase CLI installed and the project linked, apply the versioned migration:
-
-```bash
-supabase link --project-ref <project-ref>
-supabase db push
-```
-
-Apply the synthetic demo records separately using the Supabase SQL Editor or `psql -f supabase/seed.sql`. For a local Supabase stack, `supabase db reset` applies migrations and the configured seed. See [docs/database.md](docs/database.md) for details.
+---
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `NEXT_PUBLIC_API_URL` | Yes | Backend URL (default: `http://localhost:8000`) |
-| `ENVIRONMENT` | Yes | `development` or `production` |
-| `CORS_ORIGINS` | Yes | Allowed frontend origins |
-| `SUPABASE_URL` | No* | Supabase project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | No* | Supabase public/client key |
-| `SUPABASE_SECRET_KEY` | No* | Supabase privileged key (**backend only**) |
-| `SUPABASE_JWKS_URL` | No* | JWT verification metadata URL; not a database URL |
-| `SUPABASE_DB_URL` | Yes for database operations | Backend-only PostgreSQL connection string |
+All configuration is loaded via environment variables. **Do not put secrets in client-side code.**
 
-\* Supabase API keys are not required for schema storage operations; the direct PostgreSQL URL is required to apply migrations and run live database tests.
+| Variable Name | Scope | Required | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | Frontend | Yes | Base URL of the FastAPI backend (e.g., `http://localhost:8000` locally, or `https://api.yourdomain.com` in production). |
+| `NEXT_PUBLIC_CAMPUS_ID` | Frontend | Optional | Default campus UUID. Defaults to demo campus `10000000-0000-4000-8000-000000000001`. |
+| `ENVIRONMENT` | Backend | Yes | Deployment environment (`development` or `production`). |
+| `PORT` | Backend | Optional | Port for Uvicorn (default: `8000`). |
+| `CORS_ORIGINS` | Backend | Yes | Comma-delimited list of allowed browser origins (e.g., `http://localhost:3000,http://localhost:3001,https://campus-safe.vercel.app`). Wildcards are rejected. |
+| `SUPABASE_DB_URL` | Backend Only | Yes (for live DB) | PostgreSQL connection URI (e.g., `postgresql://postgres:...@db...supabase.co:6543/postgres`). Never prefix with `NEXT_PUBLIC_`. |
+| `SUPABASE_URL` | Backend | Optional | Supabase project API URL. |
+| `SUPABASE_PUBLISHABLE_KEY` | Backend | Optional | Supabase publishable anonymous key. |
+| `SUPABASE_SECRET_KEY` | Backend Only | Optional | Supabase service-role secret key. Never expose to client. |
+| `EVACUATION_MODEL_PATH` | Backend | Optional | Filesystem path to `evacuation_time_rf.joblib`. Defaults to auto-resolving local artifacts. |
 
-> **Security**: Never expose `SUPABASE_SECRET_KEY` or `SUPABASE_DB_URL` to the frontend. The data path is Next.js → FastAPI → PostgreSQL; the frontend only uses `NEXT_PUBLIC_API_URL` to call the backend.
+---
 
-## API Endpoints
+## Supabase Database Setup & Migrations
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Application health (DB-independent) |
-| `GET` | `/api/health/database` | Database connectivity check |
-| `GET` | `/api/info` | Project metadata |
+### Applying Migrations
 
-## Running Tests
+The repository contains transactional, idempotent SQL migrations under `supabase/migrations/`:
+
+```bash
+# Link project using Supabase CLI
+supabase link --project-ref <your-project-ref>
+
+# Apply pending schema migrations
+supabase db push
+```
+
+Alternatively, apply `supabase/migrations/202610090001_initial_campus_schema.sql` directly using `psql` or the Supabase SQL Editor.
+
+### Seeding Demo Topology
+
+The synthetic campus dataset is maintained in `supabase/seed.sql`:
+
+```bash
+psql "$env:SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/seed.sql
+```
+
+The seed inserts 2 buildings (Administration and Academic), 4 floors, 21 navigational nodes, 20 graph connections, 3 exits, and 1 assembly point using stable UUIDs and `ON CONFLICT DO NOTHING`.
+
+---
+
+## Automated Testing & Quality Checks
+
+Run the automated test suites prior to commits or releases:
+
+### Backend Tests (pytest)
 
 ```bash
 cd backend
+.venv\Scripts\Activate.ps1
 python -m pytest tests/ -v
 ```
 
-## Deployment (Vercel)
+*Note: Database integration tests automatically skip if `SUPABASE_DB_URL` is unconfigured, allowing offline graph unit testing.*
 
-The project is structured for Vercel deployment:
+### Frontend Tests (Node.js test runner)
 
-1. Connect your GitHub repository to Vercel
-2. Configure the frontend with root directory `frontend/`
-3. Set environment variables in Vercel dashboard
-4. Backend deployment will be configured in Phase 12
+```bash
+cd frontend
+npm test
+```
 
-See [docs/deployment.md](docs/deployment.md) for full details.
+### Production Build Verification
 
-## Current Limitations
+```bash
+cd frontend
+npm run build
+```
 
-- No routing or route-calculation algorithms are implemented yet
-- No AI/ML algorithms implemented
-- No authentication system
-- No real-time features
-- Backend not yet deployed to Vercel
+---
 
-## Development Roadmap
+## Current Demo Limitations
 
-| Phase | Module | Status |
-|---|---|---|
-| 1 | Foundation (Next.js + FastAPI + Supabase) | ✅ Complete |
-| 2 | Database Schema + Campus Graph Foundation | ✅ Complete |
-| 3 | Dijkstra + A* Pathfinding | 🔲 Planned |
-| 4 | Dynamic Emergency Model | 🔲 Planned |
-| 5 | Crowd & Congestion Model | 🔲 Planned |
-| 6 | Exit Optimization | 🔲 Planned |
-| 7 | ML Evacuation Prediction | 🔲 Planned |
-| 8 | Interactive Campus Map | 🔲 Planned |
-| 9 | Evacuation Simulation | 🔲 Planned |
-| 10 | Realtime Dashboard | 🔲 Planned |
-| 11 | Authentication | 🔲 Planned |
-| 12 | Production Deployment | 🔲 Planned |
+1. **Synthetic Campus Topology**: The demo campus geometry and node positions are schematic representations intended for demonstration. Physical distances in seed data reflect synthetic models rather than certified architectural survey measurements.
+2. **Synthetic Machine Learning Model**: Travel-time predictions are generated by a Random Forest regressor trained on synthetic evacuation formulas. They are illustrative and **not calibrated against real-world evacuation observations or empirical human flow data**.
+3. **In-Memory Hazard Injection**: Dynamic hazard scenarios (e.g., blocking fire escape or ground exits) are injected per-request for live testing. They do not persist or mutate permanent incident records in the database.
+4. **Sensor Feeds**: Crowd density values and edge congestions are simulated via preset scenario profiles; live IoT camera or turnstile ingestion is not yet integrated.
 
-## Documentation
+---
 
-- [Architecture](docs/architecture.md) — System design and data flow
-- [Database](docs/database.md) — Implemented schema, graph model, migrations, and synthetic seed
-- [Deployment](docs/deployment.md) — Vercel + Supabase deployment guide
-- [Development](docs/development.md) — Local development setup
-- [API Reference](docs/api.md) — Endpoint documentation
+## Production Deployment Prerequisites & Known Blockers
+
+Before deploying CAMPUS-SAFE to a public production environment, address the following prerequisites:
+
+1. **Authentication & RBAC (Blocker)**: Route calculation endpoints are currently unauthenticated to facilitate public egress guidance. However, emergency incident reporting, hazard creation, and topology mutation lack administrative authentication and authorization middleware.
+2. **Dedicated Backend Container Hosting (Prerequisite)**: The FastAPI backend requires persistent container hosting (e.g., Railway, Render, Google Cloud Run, AWS ECS). It should **not** be deployed as a Vercel serverless function due to Python ML dependencies (`scikit-learn`, `numpy`, `psycopg`) and the 9.5 MB Random Forest artifact size.
+3. **Production CORS Configuration (Prerequisite)**: `CORS_ORIGINS` must be explicitly restricted to verified production domains (e.g., `https://campus-safe.vercel.app`) without wildcard origins.
+4. **Empirical Calibration (Advisory)**: Deploying the travel-time predictor in life-critical operations requires calibration against real-world building evacuation drills.
+
+---
+
+## Related Documentation
+
+- [Architecture Guide](docs/architecture.md) — Comprehensive service boundaries and data models
+- [Database Schema & RLS](docs/database.md) — Table definitions, constraints, indexes, and RLS policies
+- [Deployment Guide](docs/deployment.md) — Step-by-step container and Vercel setup
+- [API Reference](docs/api.md) — Detailed request and response schemas

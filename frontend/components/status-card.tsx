@@ -19,34 +19,44 @@ const STATUS_CONFIG: Record<
   StatusVariant,
   {
     icon: typeof CheckCircle2;
-    badgeVariant: "default" | "secondary" | "destructive" | "outline";
+    badgeClass: string;
     label: string;
     dotColor: string;
+    iconBoxClass: string;
+    accentLineClass: string;
   }
 > = {
   operational: {
     icon: CheckCircle2,
-    badgeVariant: "default",
+    badgeClass: "bg-[#E6EFE8] text-[#244f32] border border-[#3C6849]/25",
     label: "Operational",
-    dotColor: "bg-emerald-400",
+    dotColor: "bg-[#3C6849]",
+    iconBoxClass: "bg-[#E6EFE8] text-[#3C6849]",
+    accentLineClass: "bg-[#3C6849]",
   },
   degraded: {
     icon: AlertTriangle,
-    badgeVariant: "outline",
+    badgeClass: "bg-[#FAF2E4] text-[#7A4F13] border border-[#B77A26]/30",
     label: "Not Configured",
-    dotColor: "bg-amber-400",
+    dotColor: "bg-[#B77A26]",
+    iconBoxClass: "bg-[#FAF2E4] text-[#B77A26]",
+    accentLineClass: "bg-[#B77A26]",
   },
   offline: {
     icon: XCircle,
-    badgeVariant: "destructive",
+    badgeClass: "bg-[#F9E8E7] text-[#BA1A1A] border border-[#BA1A1A]/30",
     label: "Offline",
-    dotColor: "bg-red-400",
+    dotColor: "bg-[#BA1A1A]",
+    iconBoxClass: "bg-[#F9E8E7] text-[#BA1A1A]",
+    accentLineClass: "bg-[#BA1A1A]",
   },
   loading: {
     icon: Loader2,
-    badgeVariant: "secondary",
+    badgeClass: "bg-[#EEEDE5] text-[#46483E] border border-[#DFDFD4]",
     label: "Checking...",
-    dotColor: "bg-blue-400",
+    dotColor: "bg-[#57603A]",
+    iconBoxClass: "bg-[#EEEDE5] text-[#57603A]",
+    accentLineClass: "bg-[#57603A]",
   },
 };
 
@@ -55,57 +65,41 @@ export function StatusCard({ title, status, message, details }: StatusCardProps)
   const Icon = config.icon;
 
   return (
-    <Card className="relative overflow-hidden border-0 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:bg-card/80 hover:shadow-lg hover:shadow-primary/5">
-      {/* Animated top border accent */}
-      <div
-        className={`absolute top-0 left-0 h-[2px] w-full transition-all duration-500 ${
-          status === "operational"
-            ? "bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-400"
-            : status === "degraded"
-            ? "bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400"
-            : status === "offline"
-            ? "bg-gradient-to-r from-red-500 via-red-400 to-rose-400"
-            : "bg-gradient-to-r from-blue-500 via-blue-400 to-cyan-400 animate-pulse"
-        }`}
-      />
+    <Card className="relative overflow-hidden border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+      {/* Top status accent line */}
+      <div className={`absolute top-0 left-0 h-[2px] w-full ${config.accentLineClass}`} />
 
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+      <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 px-5">
+        <CardTitle className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
           {title}
         </CardTitle>
-        <Badge variant={config.badgeVariant} className="text-[10px] font-semibold tracking-wide uppercase">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${config.badgeClass}`}
+        >
           <span
-            className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${config.dotColor} ${
+            className={`h-1.5 w-1.5 rounded-full ${config.dotColor} ${
               status === "loading" ? "animate-pulse" : ""
             }`}
           />
           {config.label}
-        </Badge>
+        </span>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="px-5 pb-5">
         <div className="flex items-center gap-3">
           <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
-              status === "operational"
-                ? "bg-emerald-500/10 text-emerald-400"
-                : status === "degraded"
-                ? "bg-amber-500/10 text-amber-400"
-                : status === "offline"
-                ? "bg-red-500/10 text-red-400"
-                : "bg-blue-500/10 text-blue-400"
-            }`}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${config.iconBoxClass}`}
           >
             <Icon
               className={`h-5 w-5 ${status === "loading" ? "animate-spin" : ""}`}
             />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">
+            <p className="text-sm font-semibold text-[#1A1D14]">
               {message || config.label}
             </p>
             {details && (
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              <p className="mt-0.5 truncate text-xs text-[#686B60]">
                 {details}
               </p>
             )}

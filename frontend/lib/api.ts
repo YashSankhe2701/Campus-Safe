@@ -9,6 +9,7 @@ import {
   CampusGraphSummaryResponse,
   ShortestRouteRequest,
   ShortestRouteResponse,
+  EmergencyAwareRouteRequest,
   EmergencyAwareRouteResponse,
   ExitSelectionRequest,
   ExitSelectionResponse,
@@ -17,6 +18,16 @@ import {
   RouteTimePredictionRequest,
   RouteTimePredictionResponse,
 } from "@/types/routes";
+
+import {
+  ApiRequestError,
+  RouteErrorInfo,
+  RouteErrorKind,
+  parseRoutingError,
+} from "./routing-errors";
+
+export { ApiRequestError, parseRoutingError };
+export type { RouteErrorInfo, RouteErrorKind };
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -62,7 +73,9 @@ interface RequestOptions {
 
 async function apiFetch<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   if (!API_BASE_URL) {
-    throw new Error(
+    throw new ApiRequestError(
+      0,
+      "Configuration Error",
       "NEXT_PUBLIC_API_URL is not configured. In production, configure this environment variable."
     );
   }
@@ -83,7 +96,25 @@ async function apiFetch<T>(endpoint: string, options: RequestOptions = {}): Prom
     fetchInit.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(url, fetchInit);
+  let response: Response;
+  try {
+    response = await fetch(url, fetchInit);
+  } catch (err: unknown) {
+    if (
+      err instanceof TypeError ||
+      (err instanceof Error &&
+        (err.message.includes("fetch") ||
+          err.message.includes("NetworkError") ||
+          err.message.includes("Failed to fetch")))
+    ) {
+      throw new ApiRequestError(
+        0,
+        "Network Error",
+        "The CAMPUS-SAFE API could not be reached. Please check your network connection or verify that the backend server is running."
+      );
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
@@ -100,7 +131,7 @@ async function apiFetch<T>(endpoint: string, options: RequestOptions = {}): Prom
     } catch {
       // Body not JSON; retain standard error text
     }
-    throw new Error(errorDetail);
+    throw new ApiRequestError(response.status, response.statusText, errorDetail);
   }
 
   return response.json() as Promise<T>;
@@ -182,7 +213,7 @@ export async function getAstarRoute(
  */
 export async function getEmergencyAwareRoute(
   campusId: string,
-  request: ShortestRouteRequest
+  request: EmergencyAwareRouteRequest
 ): Promise<EmergencyAwareRouteResponse> {
   return apiFetch<EmergencyAwareRouteResponse>(
     `/api/campuses/${campusId}/routes/emergency-aware`,
