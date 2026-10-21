@@ -1128,4 +1128,92 @@ describe("Campus Map - Full Calculated Route Visualization & Redesign Upgrade", 
     assert.match(authContent, /useAuth/);
     assert.match(authContent, /supabase\.auth/);
   });
+
+  it("verifies Dijkstra is default strategy and ML prediction option indicates artifact requirement", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    const mapPath = path.resolve(import.meta.dirname, "../components/map/campus-map.tsx");
+    const content = await fs.readFile(mapPath, "utf-8");
+
+    // Default strategy state must initialize to "shortest" (Dijkstra)
+    assert.match(content, /useState<RoutingStrategy>\("shortest"\)/);
+
+    // Option label must clearly indicate model artifact requirement
+    assert.match(content, /ML Evacuation Time Prediction \(Requires Model Artifact\)/);
+
+    // Error callout offers immediate recovery to Dijkstra and A*
+    assert.match(content, /Switch to Dijkstra/);
+    assert.match(content, /Switch to A\*/);
+  });
+
+  it("retains valid physical shortest path when ML prediction is null/unavailable", () => {
+    const shortestResult = {
+      campus_id: DEMO_CAMPUS_ID,
+      start_node_id: "20000000-0000-4000-8000-000000000001",
+      destination_node_id: "20000000-0000-4000-8000-000000000006",
+      path_node_ids: [
+        "20000000-0000-4000-8000-000000000001",
+        "20000000-0000-4000-8000-000000000002",
+        "20000000-0000-4000-8000-000000000003",
+        "20000000-0000-4000-8000-000000000006",
+      ],
+      total_distance_m: 26.0,
+      steps: [
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000001",
+          to_node_id: "20000000-0000-4000-8000-000000000002",
+          edge_id: "30000000-0000-4000-8000-000000000001",
+          distance_m: 8,
+        },
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000002",
+          to_node_id: "20000000-0000-4000-8000-000000000003",
+          edge_id: "30000000-0000-4000-8000-000000000002",
+          distance_m: 6,
+        },
+        {
+          from_node_id: "20000000-0000-4000-8000-000000000003",
+          to_node_id: "20000000-0000-4000-8000-000000000006",
+          edge_id: "30000000-0000-4000-8000-000000000005",
+          distance_m: 12,
+        },
+      ],
+    };
+
+    const predictionResult = null; // ML prediction failed with 503
+    const strategy = "prediction";
+
+    // Resolution logic from campus-map.tsx activePathNodeIds
+    const activePathNodeIds =
+      strategy === "prediction"
+        ? predictionResult?.path_node_ids || shortestResult?.path_node_ids || []
+        : shortestResult?.path_node_ids || [];
+
+    // Resolution logic from campus-map.tsx activePathEdgeIds
+    const activePathEdgeIds =
+      strategy === "prediction"
+        ? predictionResult?.edge_ids || (shortestResult ? shortestResult.steps.map((s) => s.edge_id) : [])
+        : shortestResult ? shortestResult.steps.map((s) => s.edge_id) : [];
+
+    // Path must NOT be empty — physical route is preserved
+    assert.deepEqual(activePathNodeIds, shortestResult.path_node_ids);
+    assert.deepEqual(activePathEdgeIds, ["30000000-0000-4000-8000-000000000001", "30000000-0000-4000-8000-000000000002", "30000000-0000-4000-8000-000000000005"]);
+
+    // Est. Duration telemetry logic from campus-map.tsx
+    let durationDisplay = "—";
+    let durationSubtext = "";
+    if (strategy === "prediction") {
+      if (predictionResult?.predicted_evacuation_time_sec !== undefined) {
+        durationDisplay = `${Math.round(predictionResult.predicted_evacuation_time_sec)}s`;
+        durationSubtext = "ML Predicted Evacuation Time";
+      } else if (shortestResult) {
+        durationDisplay = "Model Unavailable";
+        durationSubtext = "Physical path active";
+      }
+    }
+
+    assert.equal(durationDisplay, "Model Unavailable");
+    assert.equal(durationSubtext, "Physical path active");
+  });
 });

@@ -106,11 +106,38 @@ export function parseRoutingError(err: unknown): RouteErrorInfo {
 
   // 4. Server error (HTTP 500, 502, 503, 504)
   if (status !== null && status >= 500) {
+    if (
+      status === 503 &&
+      (rawMessage.includes("model") ||
+        rawMessage.includes("prediction") ||
+        rawMessage.includes("Travel-time") ||
+        rawMessage.includes("artifact"))
+    ) {
+      return {
+        kind: "server_error",
+        title: "Prediction Model Unavailable",
+        message:
+          "The ML travel-time prediction model artifact is not deployed on this server. Standard physical path is retained; switch to Dijkstra or A*.",
+        originalError,
+      };
+    }
+
+    if (status === 503) {
+      return {
+        kind: "server_error",
+        title: "Service Temporarily Unavailable",
+        message:
+          "The routing backend is temporarily unavailable or restarting (HTTP 503). Please retry in a few seconds.",
+        originalError,
+      };
+    }
+
+    const detailText = rawMessage && !rawMessage.startsWith("HTTP") ? ` (${rawMessage})` : "";
     return {
       kind: "server_error",
       title: "Routing Service Error",
       message:
-        "The routing service encountered an unexpected error. Please try again shortly or contact system administrators.",
+        `The routing service encountered an unexpected error${detailText}. Please try again shortly or contact system administrators.`,
       originalError,
     };
   }

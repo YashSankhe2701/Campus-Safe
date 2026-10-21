@@ -196,7 +196,7 @@ export function CampusMap() {
       return congestionResult?.path_node_ids || [];
     }
     if (strategy === "prediction") {
-      return predictionResult?.path_node_ids || [];
+      return predictionResult?.path_node_ids || shortestResult?.path_node_ids || [];
     }
     if (strategy === "shortest" || strategy === "astar") {
       return shortestResult?.path_node_ids || [];
@@ -219,7 +219,7 @@ export function CampusMap() {
       return congestionResult ? congestionResult.steps.map((s) => s.edge_id) : [];
     }
     if (strategy === "prediction") {
-      return predictionResult?.edge_ids || [];
+      return predictionResult?.edge_ids || (shortestResult ? shortestResult.steps.map((s) => s.edge_id) : []);
     }
     if (strategy === "shortest" || strategy === "astar") {
       return shortestResult ? shortestResult.steps.map((s) => s.edge_id) : [];
@@ -414,16 +414,31 @@ export function CampusMap() {
 
         // Step 2: predict travel time along this route
         const edgeIds = baseRoute.steps.map((s) => s.edge_id);
-        const predRes = await predictRouteTime(campusId, {
-          path_node_ids: baseRoute.path_node_ids,
-          edge_ids: edgeIds,
-          base_walking_speed_mps: walkingSpeed,
-          edge_scenarios: edgeScenarios,
-        });
-        if (requestId !== activeRequestIdRef.current) return;
-        setPredictionResult(predRes);
         resolvedDistance = baseRoute.total_distance_m;
         resolvedNodeCount = baseRoute.path_node_ids.length;
+
+        try {
+          const predRes = await predictRouteTime(campusId, {
+            path_node_ids: baseRoute.path_node_ids,
+            edge_ids: edgeIds,
+            base_walking_speed_mps: walkingSpeed,
+            edge_scenarios: edgeScenarios,
+          });
+          if (requestId !== activeRequestIdRef.current) return;
+          setPredictionResult(predRes);
+        } catch (predErr: unknown) {
+          if (requestId !== activeRequestIdRef.current) return;
+          setPredictionResult(null);
+          const parsedErr = parseRoutingError(predErr);
+          setRouteError({
+            ...parsedErr,
+            title: parsedErr.title || "Prediction Model Unavailable",
+            message:
+              parsedErr.title === "Prediction Model Unavailable"
+                ? "The ML travel-time prediction model artifact is not deployed on this server. Standard physical path is retained below; switch to Dijkstra or A* for standard navigation."
+                : `${parsedErr.message} Active path geometry is retained.`,
+          });
+        }
       }
 
       // Add to session history
@@ -853,7 +868,7 @@ export function CampusMap() {
                   <option value="emergency">Emergency-Aware (Hazard Penalty)</option>
                   <option value="evacuation">Nearest Exit Evacuation (Exit Selection)</option>
                   <option value="congestion">Congestion Scenario Pathfinding</option>
-                  <option value="prediction">ML Evacuation Time Prediction</option>
+                  <option value="prediction">ML Evacuation Time Prediction (Requires Model Artifact)</option>
                 </select>
               </div>
 
@@ -937,6 +952,32 @@ export function CampusMap() {
                   <div className="flex-1">
                     <p className="font-semibold text-[#F1F5F9]">{routeError.title}</p>
                     <p className="mt-0.5 text-[11px] text-[#94A3B8] leading-relaxed">{routeError.message}</p>
+                    {strategy === "prediction" && (
+                      <div className="mt-2.5 flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setStrategy("shortest");
+                            handleCalculateRoute(hazardPreset, "shortest");
+                          }}
+                          className="h-7 text-[11px] border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300"
+                        >
+                          Switch to Dijkstra
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setStrategy("astar");
+                            handleCalculateRoute(hazardPreset, "astar");
+                          }}
+                          className="h-7 text-[11px] border-slate-600 bg-slate-800 hover:bg-slate-700 text-[#F1F5F9]"
+                        >
+                          Switch to A*
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -2231,6 +2272,11 @@ export function CampusMap() {
                           {predictionResult.route_distance_m.toFixed(1)}
                           <span className="text-xs font-normal text-[#94A3B8] ml-1">m</span>
                         </>
+                      ) : shortestResult?.total_distance_m !== null && shortestResult?.total_distance_m !== undefined ? (
+                        <>
+                          {shortestResult.total_distance_m.toFixed(1)}
+                          <span className="text-xs font-normal text-[#94A3B8] ml-1">m</span>
+                        </>
                       ) : (
                         "—"
                       )
@@ -2257,6 +2303,11 @@ export function CampusMap() {
                     <p className="mt-1 text-2xl font-bold font-mono tracking-tight text-cyan-400">
                       {predictionResult.predicted_travel_time_s.toFixed(1)}s
                     </p>
+                  ) : strategy === "prediction" && shortestResult ? (
+                    <div className="mt-1">
+                      <p className="text-xs font-semibold text-amber-400">Model Unavailable</p>
+                      <p className="text-[10px] text-[#94A3B8] leading-tight mt-0.5">Physical path active</p>
+                    </div>
                   ) : (
                     <p className="mt-2 text-xs font-medium text-[#94A3B8] italic">
                       Distance only

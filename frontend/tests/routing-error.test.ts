@@ -125,4 +125,31 @@ describe("Routing Error Handling - Classification & Diagnostics", () => {
     assert.doesNotMatch(parsed.message, /exit is reachable/i);
     assert.match(parsed.message, /select a reachable exit/i);
   });
+
+  it("distinguishes HTTP 503 prediction model unavailability from generic server errors", () => {
+    const modelError = new ApiRequestError(
+      503,
+      "Service Unavailable",
+      "Travel-time prediction model is unavailable."
+    );
+    const parsed = parseRoutingError(modelError);
+
+    assert.equal(parsed.kind, "server_error");
+    assert.equal(parsed.title, "Prediction Model Unavailable");
+    assert.match(parsed.message, /prediction model artifact is not deployed/i);
+    assert.match(parsed.message, /standard physical path is retained/i);
+  });
+
+  it("distinguishes HTTP 503 temporary service unavailability with retry guidance", () => {
+    const serviceError = new ApiRequestError(
+      503,
+      "Service Unavailable",
+      "Service Unavailable"
+    );
+    const parsed = parseRoutingError(serviceError);
+
+    assert.equal(parsed.kind, "server_error");
+    assert.equal(parsed.title, "Service Temporarily Unavailable");
+    assert.match(parsed.message, /temporarily unavailable or restarting/i);
+  });
 });
