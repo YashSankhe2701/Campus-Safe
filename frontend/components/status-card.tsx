@@ -6,7 +6,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle2,
   XCircle,
@@ -28,35 +27,35 @@ const STATUS_CONFIG: Record<
 > = {
   operational: {
     icon: CheckCircle2,
-    badgeClass: "bg-[#E6EFE8] text-[#244f32] border border-[#3C6849]/25",
+    badgeClass: "bg-emerald-950/60 text-emerald-300 border border-emerald-500/30",
     label: "Operational",
-    dotColor: "bg-[#3C6849]",
-    iconBoxClass: "bg-[#E6EFE8] text-[#3C6849]",
-    accentLineClass: "bg-[#3C6849]",
+    dotColor: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]",
+    iconBoxClass: "bg-emerald-950/40 text-emerald-400 border border-emerald-500/20",
+    accentLineClass: "bg-emerald-500",
   },
   degraded: {
     icon: AlertTriangle,
-    badgeClass: "bg-[#FAF2E4] text-[#7A4F13] border border-[#B77A26]/30",
+    badgeClass: "bg-amber-950/60 text-amber-300 border border-amber-500/30",
     label: "Not Configured",
-    dotColor: "bg-[#B77A26]",
-    iconBoxClass: "bg-[#FAF2E4] text-[#B77A26]",
-    accentLineClass: "bg-[#B77A26]",
+    dotColor: "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]",
+    iconBoxClass: "bg-amber-950/40 text-amber-400 border border-amber-500/20",
+    accentLineClass: "bg-amber-500",
   },
   offline: {
     icon: XCircle,
-    badgeClass: "bg-[#F9E8E7] text-[#BA1A1A] border border-[#BA1A1A]/30",
+    badgeClass: "bg-red-950/60 text-red-300 border border-red-500/30",
     label: "Offline",
-    dotColor: "bg-[#BA1A1A]",
-    iconBoxClass: "bg-[#F9E8E7] text-[#BA1A1A]",
-    accentLineClass: "bg-[#BA1A1A]",
+    dotColor: "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.7)]",
+    iconBoxClass: "bg-red-950/40 text-red-400 border border-red-500/20",
+    accentLineClass: "bg-red-500",
   },
   loading: {
     icon: Loader2,
-    badgeClass: "bg-[#EEEDE5] text-[#46483E] border border-[#DFDFD4]",
+    badgeClass: "bg-slate-800 text-slate-300 border border-slate-700",
     label: "Checking...",
-    dotColor: "bg-[#57603A]",
-    iconBoxClass: "bg-[#EEEDE5] text-[#57603A]",
-    accentLineClass: "bg-[#57603A]",
+    dotColor: "bg-cyan-400",
+    iconBoxClass: "bg-slate-800 text-cyan-400 border border-slate-700",
+    accentLineClass: "bg-cyan-500",
   },
 };
 
@@ -65,12 +64,12 @@ export function StatusCard({ title, status, message, details }: StatusCardProps)
   const Icon = config.icon;
 
   return (
-    <Card className="relative overflow-hidden border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+    <Card className="relative overflow-hidden border border-[#263449] bg-[#111827] shadow-md transition-all hover:border-[#384c68]">
       {/* Top status accent line */}
       <div className={`absolute top-0 left-0 h-[2px] w-full ${config.accentLineClass}`} />
 
       <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 px-5">
-        <CardTitle className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+        <CardTitle className="text-xs font-bold uppercase tracking-wider text-[#94A3B8]">
           {title}
         </CardTitle>
         <span
@@ -95,11 +94,11 @@ export function StatusCard({ title, status, message, details }: StatusCardProps)
             />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-[#1A1D14]">
+            <p className="text-sm font-semibold text-[#F1F5F9]">
               {message || config.label}
             </p>
             {details && (
-              <p className="mt-0.5 truncate text-xs text-[#686B60]">
+              <p className="mt-0.5 truncate text-xs text-[#94A3B8]">
                 {details}
               </p>
             )}

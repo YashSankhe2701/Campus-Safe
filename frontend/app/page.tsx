@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useSystemStatus } from "@/hooks/use-system-status";
+import { useAuth } from "@/hooks/use-auth";
 import { API_BASE_URL } from "@/lib/api";
 import { StatusCard } from "@/components/status-card";
 import { CampusMap } from "@/components/map/campus-map";
@@ -17,10 +19,12 @@ import {
   RefreshCw,
   ExternalLink,
   ArrowRight,
-  Layers,
   Building2,
   CheckCircle2,
   AlertTriangle,
+  User as UserIcon,
+  LogOut,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,39 +76,107 @@ const FUTURE_MODULES = [
 ];
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const { user, loading: authLoading, signOut } = useAuth();
   const { backend, database, info, refresh } = useSystemStatus();
   const [activeTab, setActiveTab] = useState<"map" | "system">("map");
+  const [signingOut, setSigningOut] = useState<boolean>(false);
+
+  // Authentication Gate: redirect to /login if unauthenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace("/login");
+    }
+  }, [user, authLoading, router]);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOut();
+      router.replace("/login");
+    } catch (err) {
+      console.error("Sign out error:", err);
+      setSigningOut(false);
+    }
+  };
+
+  // While checking initial auth state, show dark splash spinner
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0B1120] text-[#F1F5F9]">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.3)] mb-4">
+          <Shield className="h-6 w-6" />
+        </div>
+        <Loader2 className="h-6 w-6 animate-spin text-cyan-400 mb-2" />
+        <p className="text-xs text-[#94A3B8] font-mono">Verifying authorization...</p>
+      </div>
+    );
+  }
+
+  // If not authenticated, prevent flash while redirect takes effect
+  if (!user) {
+    return null;
+  }
+
+  const isBackendOnline = backend.status === "operational";
+  const isDbOnline = database.status === "operational";
+  const userInitials =
+    user.user_metadata?.full_name
+      ?.split(" ")
+      .map((n: string) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() ||
+    user.email?.slice(0, 2).toUpperCase() ||
+    "CS";
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-[#F5F4EE] text-[#1A1D14]">
-      {/* Stitch Architectural Header */}
-      <header className="sticky top-0 z-50 bg-[#F5F4EE]/95 backdrop-blur-md border-b border-[#DFDFD4]">
+    <div className="relative flex min-h-screen flex-col bg-[#0B1120] text-[#F1F5F9]">
+      {/* Dark Architectural Header */}
+      <header className="sticky top-0 z-50 bg-[#0B1120]/95 backdrop-blur-md border-b border-[#263449]">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 sm:px-6 h-16">
           <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#57603A] text-white shadow-sm">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.25)]">
               <Shield className="h-5 w-5" />
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold tracking-tight uppercase text-[#1A1D14]">
+                <span className="text-sm font-bold tracking-tight uppercase text-[#F1F5F9]">
                   CAMPUS-SAFE
                 </span>
-                <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-[#EEEDE5] text-[#46483E] border border-[#C7C7BA]">
-                  Enterprise Safety OS
+                <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/30">
+                  Operations Console
                 </span>
               </div>
+              <span className="text-[11px] text-[#94A3B8] font-normal leading-tight hidden sm:inline">
+                Smart Campus Emergency Navigation
+              </span>
             </div>
 
-            {/* Live Backend & Graph Engine Health Status Pill */}
-            <div className="hidden md:flex items-center gap-1.5 bg-[#E6EFE8] border border-[#3C6849]/25 px-2.5 py-0.5 rounded-full">
+            {/* Live Backend Health Pill (Based on real health check) */}
+            <div
+              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-colors ${
+                isBackendOnline
+                  ? "bg-emerald-950/50 border-emerald-500/30 text-emerald-300"
+                  : backend.status === "loading"
+                  ? "bg-slate-900 border-slate-700 text-slate-300"
+                  : "bg-red-950/50 border-red-500/30 text-red-300"
+              }`}
+            >
               <span
                 className={`w-2 h-2 rounded-full ${
-                  backend.status === "operational" ? "bg-[#3C6849]" : "bg-[#BA1A1A] animate-pulse"
+                  isBackendOnline
+                    ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"
+                    : backend.status === "loading"
+                    ? "bg-cyan-400 animate-pulse"
+                    : "bg-red-400 animate-pulse shadow-[0_0_8px_rgba(248,113,113,0.8)]"
                 }`}
               />
-              <span className="text-[11px] font-medium text-[#244f32]">
-                {backend.status === "operational"
-                  ? "FastAPI & Graph Engine: Operational"
+              <span>
+                {isBackendOnline
+                  ? "Graph Engine: Connected"
+                  : backend.status === "loading"
+                  ? "Connecting API..."
                   : "Graph Engine: Disconnected"}
               </span>
             </div>
@@ -115,34 +187,34 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setActiveTab("map")}
-              className={`flex items-center gap-1.5 px-3.5 h-full text-xs font-semibold transition-colors border-b-2 ${
+              className={`flex items-center gap-1.5 px-3.5 h-full text-xs font-semibold transition-all border-b-2 ${
                 activeTab === "map"
-                  ? "border-[#57603A] bg-[#EEEDE5]/50 text-[#1A1D14]"
-                  : "border-transparent text-[#686B60] hover:text-[#1A1D14]"
+                  ? "border-cyan-400 text-cyan-300 bg-cyan-950/30"
+                  : "border-transparent text-[#94A3B8] hover:text-[#F1F5F9] hover:bg-[#111827]/60"
               }`}
             >
               <MapIcon className="h-3.5 w-3.5" />
-              <span>Live Sector Map & Routing</span>
+              <span>Campus Map & Routing</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab("system")}
-              className={`flex items-center gap-1.5 px-3.5 h-full text-xs font-semibold transition-colors border-b-2 ${
+              className={`flex items-center gap-1.5 px-3.5 h-full text-xs font-semibold transition-all border-b-2 ${
                 activeTab === "system"
-                  ? "border-[#57603A] bg-[#EEEDE5]/50 text-[#1A1D14]"
-                  : "border-transparent text-[#686B60] hover:text-[#1A1D14]"
+                  ? "border-cyan-400 text-cyan-300 bg-cyan-950/30"
+                  : "border-transparent text-[#94A3B8] hover:text-[#F1F5F9] hover:bg-[#111827]/60"
               }`}
             >
               <Server className="h-3.5 w-3.5" />
-              <span>System Health & Diagnostics</span>
+              <span>System Health</span>
             </button>
           </nav>
 
-          {/* Context, Campus Selector & Refresh */}
-          <div className="flex items-center gap-2.5 flex-shrink-0">
-            <div className="hidden lg:flex items-center gap-1.5 bg-[#EEEDE5] border border-[#DFDFD4] rounded px-2.5 py-1 text-xs text-[#1A1D14] font-medium">
-              <Building2 className="h-3.5 w-3.5 text-[#686B60]" />
+          {/* User Profile, Campus Selector & Sign Out */}
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
+            <div className="hidden lg:flex items-center gap-1.5 bg-[#172033] border border-[#263449] rounded-md px-2.5 py-1 text-xs text-[#F1F5F9] font-medium">
+              <Building2 className="h-3.5 w-3.5 text-cyan-400" />
               <span>Demo Campus</span>
             </div>
 
@@ -150,30 +222,76 @@ export default function DashboardPage() {
               variant="outline"
               size="sm"
               onClick={refresh}
-              className="h-8 gap-1.5 text-xs border-[#DFDFD4] bg-[#FFFFFF] hover:bg-[#EEEDE5] text-[#1A1D14]"
+              className="h-8 gap-1.5 text-xs border-[#263449] bg-[#111827] hover:bg-[#172033] text-[#F1F5F9]"
+              title="Refresh connection status"
             >
-              <RefreshCw className="h-3 w-3 text-[#686B60]" />
+              <RefreshCw className="h-3 w-3 text-cyan-400" />
               <span className="hidden sm:inline">Sync</span>
             </Button>
+
+            {/* User Profile Pill & Sign Out */}
+            <div className="flex items-center gap-1.5 pl-1.5 border-l border-[#263449]">
+              <div
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-950 border border-cyan-500/40 text-[10px] font-bold text-cyan-300"
+                title={user.email}
+              >
+                {userInitials}
+              </div>
+              <span className="hidden xl:inline text-xs font-mono text-[#F1F5F9] max-w-[120px] truncate">
+                {user.email?.split("@")[0]}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSignOut}
+                disabled={signingOut}
+                className="h-8 px-2 text-xs text-[#94A3B8] hover:text-red-400 hover:bg-red-950/30 transition-colors"
+                title="Sign out of account"
+              >
+                {signingOut ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LogOut className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden sm:inline ml-1">Sign Out</span>
+              </Button>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Operational Sub-Header & Global Context Bar */}
-      <div className="w-full bg-[#FAF9F5] border-b border-[#DFDFD4] px-4 sm:px-6 py-2.5">
+      <div className="w-full bg-[#111827] border-b border-[#263449] px-4 sm:px-6 py-2.5">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-[#3C6849]" />
-            <span className="font-semibold text-[#1A1D14]">Central Operations Console</span>
-            <span className="text-[#C7C7BA]">·</span>
-            <span className="text-[#686B60]">Authoritative Topology: 21 Nodes · 21 Edges · 3 Exits · 1 Assembly Point</span>
+            <span
+              className={`h-2 w-2 rounded-full ${
+                isBackendOnline
+                  ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
+                  : "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]"
+              }`}
+            />
+            <span className="font-semibold text-[#F1F5F9]">Emergency Operations Center</span>
+            <span className="text-[#263449]">|</span>
+            <span className="text-[#94A3B8]">
+              Authoritative Campus Topology: 21 Nodes · 21 Edges · 3 Exits · 1 Assembly Point
+            </span>
           </div>
 
-          <div className="flex items-center gap-3 text-[11px] font-mono text-[#686B60]">
-            <span>Database: {database.status === "operational" ? "PostgreSQL Connected" : "Connecting..."}</span>
+          <div className="flex items-center gap-3 text-[11px] font-mono text-[#94A3B8]">
+            <span>
+              Database:{" "}
+              {isDbOnline ? (
+                <span className="text-emerald-400 font-semibold">PostgreSQL Connected</span>
+              ) : database.status === "loading" ? (
+                <span className="text-cyan-400">Connecting...</span>
+              ) : (
+                <span className="text-amber-400">Offline / Standalone</span>
+              )}
+            </span>
             {info && (
               <>
-                <span className="text-[#C7C7BA]">·</span>
+                <span className="text-[#263449]">|</span>
                 <span>API v{info.version}</span>
               </>
             )}
@@ -188,29 +306,29 @@ export default function DashboardPage() {
         ) : (
           <div className="space-y-8">
             {/* System Overview Hero Section */}
-            <section className="rounded-xl border border-[#DFDFD4] bg-[#FFFFFF] p-8 text-center shadow-xs">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#EEEDE5] text-[#57603A]">
+            <section className="rounded-xl border border-[#263449] bg-[#111827] p-8 text-center shadow-lg">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 shadow-[0_0_16px_rgba(34,211,238,0.25)]">
                 <Shield className="h-6 w-6" />
               </div>
-              <h2 className="mb-2 text-2xl font-bold tracking-tight text-[#1A1D14] sm:text-3xl">
-                CAMPUS-SAFE Enterprise Safety OS
+              <h2 className="mb-2 text-2xl font-bold tracking-tight text-[#F1F5F9] sm:text-3xl">
+                CAMPUS-SAFE Emergency OS
               </h2>
-              <p className="mx-auto max-w-2xl text-sm leading-relaxed text-[#686B60]">
+              <p className="mx-auto max-w-2xl text-sm leading-relaxed text-[#94A3B8]">
                 AI-assisted smart campus emergency operations and evacuation management platform.
                 Combines authoritative campus graph topology, safety-constrained pathfinding,
                 and machine-learning travel-time estimations.
               </p>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
-                <span className="rounded bg-[#EEEDE5] px-2.5 py-1 font-medium text-[#46483E]">
+                <span className="rounded bg-[#172033] border border-[#263449] px-2.5 py-1 font-medium text-[#F1F5F9]">
                   21 Graph Nodes
                 </span>
-                <span className="rounded bg-[#EEEDE5] px-2.5 py-1 font-medium text-[#46483E]">
+                <span className="rounded bg-[#172033] border border-[#263449] px-2.5 py-1 font-medium text-[#F1F5F9]">
                   21 Authoritative Edges
                 </span>
-                <span className="rounded bg-[#EEEDE5] px-2.5 py-1 font-medium text-[#46483E]">
+                <span className="rounded bg-[#172033] border border-[#263449] px-2.5 py-1 font-medium text-[#F1F5F9]">
                   Ground & 1st Floor Topology
                 </span>
-                <span className="rounded bg-[#E6EFE8] px-2.5 py-1 font-medium text-[#244f32]">
+                <span className="rounded bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 font-medium text-emerald-300">
                   Dijkstra · A* · Hazard-Aware Routing
                 </span>
               </div>
@@ -219,8 +337,8 @@ export default function DashboardPage() {
             {/* System Status Section */}
             <section>
               <div className="mb-3 flex items-center gap-2">
-                <Server className="h-4 w-4 text-[#686B60]" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+                <Server className="h-4 w-4 text-cyan-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#94A3B8]">
                   Core Service Telemetry
                 </h3>
               </div>
@@ -265,60 +383,60 @@ export default function DashboardPage() {
             {/* Architecture Overview */}
             <section>
               <div className="mb-3 flex items-center gap-2">
-                <Activity className="h-4 w-4 text-[#686B60]" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+                <Activity className="h-4 w-4 text-cyan-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#94A3B8]">
                   System Architecture
                 </h3>
               </div>
 
-              <Card className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs">
+              <Card className="border border-[#263449] bg-[#111827] shadow-lg">
                 <CardContent className="p-6">
                   <div className="grid gap-4 sm:grid-cols-3">
                     {/* Frontend */}
-                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-5 text-center">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#EEEDE5] text-[#57603A]">
+                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#263449] bg-[#172033] p-5 text-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
                         <Server className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-[#1A1D14]">Next.js Frontend</p>
-                        <p className="mt-1 text-xs text-[#686B60]">
+                        <p className="text-sm font-semibold text-[#F1F5F9]">Next.js Frontend</p>
+                        <p className="mt-1 text-xs text-[#94A3B8]">
                           TypeScript · App Router · Tailwind CSS
                         </p>
                       </div>
                     </div>
 
                     {/* Backend */}
-                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-5 text-center">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#E6EFE8] text-[#3C6849]">
+                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#263449] bg-[#172033] p-5 text-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-emerald-400">
                         <Zap className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-[#1A1D14]">FastAPI Backend</p>
-                        <p className="mt-1 text-xs text-[#686B60]">
+                        <p className="text-sm font-semibold text-[#F1F5F9]">FastAPI Backend</p>
+                        <p className="mt-1 text-xs text-[#94A3B8]">
                           Python · Pydantic · NetworkX Graph
                         </p>
                       </div>
                     </div>
 
                     {/* Database */}
-                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#DFDFD4] bg-[#FAF9F5] p-5 text-center">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#FAF2E4] text-[#B77A26]">
+                    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-[#263449] bg-[#172033] p-5 text-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-950/60 border border-amber-500/30 text-amber-400">
                         <Database className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-[#1A1D14]">Supabase PostgreSQL</p>
-                        <p className="mt-1 text-xs text-[#686B60]">
+                        <p className="text-sm font-semibold text-[#F1F5F9]">Supabase PostgreSQL</p>
+                        <p className="mt-1 text-xs text-[#94A3B8]">
                           PostgreSQL · Realtime Engine · Auth
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-[#686B60]">
+                  <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-[#94A3B8]">
                     <span>Frontend Client</span>
-                    <ArrowRight className="h-3 w-3 text-[#C7C7BA]" />
-                    <span>FastAPI REST & WebSocket</span>
-                    <ArrowRight className="h-3 w-3 text-[#C7C7BA]" />
+                    <ArrowRight className="h-3 w-3 text-cyan-400" />
+                    <span>FastAPI REST</span>
+                    <ArrowRight className="h-3 w-3 text-cyan-400" />
                     <span>Supabase DB</span>
                   </div>
                 </CardContent>
@@ -328,8 +446,8 @@ export default function DashboardPage() {
             {/* Upcoming Roadmap Modules */}
             <section>
               <div className="mb-3 flex items-center gap-2">
-                <Zap className="h-4 w-4 text-[#686B60]" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[#686B60]">
+                <Zap className="h-4 w-4 text-cyan-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#94A3B8]">
                   Project Roadmap & Functional Modules
                 </h3>
               </div>
@@ -340,26 +458,26 @@ export default function DashboardPage() {
                   return (
                     <Card
                       key={module.title}
-                      className="border border-[#DFDFD4] bg-[#FFFFFF] shadow-xs transition-shadow hover:shadow-sm"
+                      className="border border-[#263449] bg-[#111827] shadow-md transition-all hover:border-[#384c68]"
                     >
                       <CardHeader className="p-4 pb-2">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <Icon className="h-4 w-4 text-[#57603A]" />
-                            <CardTitle className="text-sm font-semibold text-[#1A1D14]">
+                            <Icon className="h-4 w-4 text-cyan-400" />
+                            <CardTitle className="text-sm font-semibold text-[#F1F5F9]">
                               {module.title}
                             </CardTitle>
                           </div>
                           <Badge
                             variant="outline"
-                            className="border-[#DFDFD4] bg-[#EEEDE5] text-[10px] font-semibold text-[#46483E]"
+                            className="border-[#263449] bg-[#172033] text-[10px] font-semibold text-[#94A3B8]"
                           >
                             Phase {module.phase}
                           </Badge>
                         </div>
                       </CardHeader>
                       <CardContent className="p-4 pt-1">
-                        <CardDescription className="text-xs leading-relaxed text-[#686B60]">
+                        <CardDescription className="text-xs leading-relaxed text-[#94A3B8]">
                           {module.description}
                         </CardDescription>
                       </CardContent>
@@ -372,12 +490,12 @@ export default function DashboardPage() {
             {/* API Documentation Link */}
             {info && (
               <section>
-                <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-[#DFDFD4] bg-[#FFFFFF] p-6 sm:flex-row shadow-xs">
+                <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-[#263449] bg-[#111827] p-6 sm:flex-row shadow-lg">
                   <div>
-                    <p className="text-sm font-semibold text-[#1A1D14]">
+                    <p className="text-sm font-semibold text-[#F1F5F9]">
                       {info.project} API Documentation (Swagger / OpenAPI)
                     </p>
-                    <p className="mt-0.5 text-xs text-[#686B60]">
+                    <p className="mt-0.5 text-xs text-[#94A3B8]">
                       {info.environment} environment · {info.api_status}
                     </p>
                   </div>
@@ -390,9 +508,9 @@ export default function DashboardPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="gap-2 border-[#DFDFD4] bg-[#FFFFFF] text-xs font-medium text-[#1A1D14] hover:bg-[#EEEDE5]"
+                        className="gap-2 border-[#263449] bg-[#172033] text-xs font-medium text-[#F1F5F9] hover:bg-[#1f2b45]"
                       >
-                        <ExternalLink className="h-3.5 w-3.5 text-[#57603A]" />
+                        <ExternalLink className="h-3.5 w-3.5 text-cyan-400" />
                         Explore API Docs
                       </Button>
                     </a>
@@ -404,18 +522,18 @@ export default function DashboardPage() {
         )}
       </main>
 
-      {/* Stitch Architectural Footer */}
-      <footer className="border-t border-[#DFDFD4] bg-[#FAF9F5]">
+      {/* Dark Architectural Footer */}
+      <footer className="border-t border-[#263449] bg-[#0B1120]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 sm:px-6 py-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-[#1A1D14]">CAMPUS-SAFE</span>
-            <span className="text-[#C7C7BA]">·</span>
-            <span className="text-xs text-[#686B60]">
-              Enterprise Safety OS & Intelligent Campus Evacuation System
+            <span className="text-xs font-bold text-[#F1F5F9]">CAMPUS-SAFE</span>
+            <span className="text-[#263449]">|</span>
+            <span className="text-xs text-[#94A3B8]">
+              Smart Campus Emergency Navigation & Evacuation Operations
             </span>
           </div>
-          <p className="text-xs text-[#686B60]">
-            Next.js 15 App Router · FastAPI · NetworkX · Supabase PostgreSQL
+          <p className="text-xs text-[#94A3B8]">
+            Next.js App Router · FastAPI · NetworkX MultiDiGraph · Supabase Auth & PostgreSQL
           </p>
         </div>
       </footer>

@@ -1,8 +1,9 @@
 /**
- * CAMPUS-SAFE - Campus Map Geometric Layout & Collision Avoidance Engine
+ * CAMPUS-SAFE V3 - Campus Map Architectural Layout & Collision Avoidance Engine
  *
- * Implements deterministic Point-Feature Label Placement (PFLP) with candidate scoring
- * for campus topology nodes, labels, START/DEST markers, and active route lines.
+ * Implements deterministic Point-Feature Label Placement (PFLP) on a spacious
+ * 1000x620 architectural canvas with four distinct academic buildings, central
+ * quad / Assembly Zone, and South Main Gate circulation network.
  */
 
 import type { GraphNodeDefinition, GraphEdgeDefinition } from "../types/routes.ts";
@@ -27,6 +28,15 @@ export interface RouteLineSegment {
   x2: number;
   y2: number;
 }
+
+export const CAMPUS_VIEWBOX = {
+  minX: 0,
+  minY: 0,
+  maxX: 1000,
+  maxY: 620,
+  width: 1000,
+  height: 620,
+};
 
 /**
  * Returns compact, human-readable map labels for schematic rendering.
@@ -82,39 +92,200 @@ export function getCompactNodeLabel(code: string): string {
 }
 
 /**
- * Calculates standard node radius in SVG coordinate space.
+ * Calculates standard node radius in SVG coordinate space (1000x620).
  */
 export function getNodeRadius(
   nodeType: string,
   isExit: boolean,
   isAssemblyPoint: boolean
 ): number {
-  if (isAssemblyPoint) return 2.4;
-  if (isExit) return 2.2;
-  if (nodeType === "entrance") return 2.0;
-  if (nodeType === "staircase") return 1.8;
-  if (nodeType === "room") return 1.7;
-  return 1.6;
+  if (isAssemblyPoint) return 18;
+  if (isExit) return 16;
+  if (nodeType === "entrance") return 15;
+  if (nodeType === "staircase") return 14;
+  if (nodeType === "room") return 13;
+  return 13;
 }
 
 /**
- * Transform seed planar coordinates to SVG coordinates.
- * Inverts Y so positive Y appears towards top of canvas.
- * Slightly offsets First Floor nodes upwards in 'all' view to disambiguate planar projections.
+ * Presentation-layer layout mapping keyed by stable node UUID (and code fallback).
+ * Completely separates visual coordinates from underlying graph connectivity and weights.
+ *
+ * Layout arrangement:
+ * - Building 1 — CSE Department (1st Floor, North-West, x: 40..410, y: 40..250)
+ * - Building 2 — IT Department (1st Floor, North-East, x: 590..960, y: 40..250)
+ * - Building 3 — AI & ML Department (Ground Floor, South-West, x: 40..410, y: 290..500)
+ * - Building 4 — CSBS Department (Ground Floor, South-East, x: 590..960, y: 290..500)
+ * - Central Courtyard & Assembly Zone (Centre, x: 430..570, y: 40..480)
+ * - Main Gate (South, x: 410..590, y: 505..585)
+ */
+export const PRESENTATION_NODE_COORDINATES: Record<string, { svgX: number; svgY: number }> = {
+  // -------------------------------------------------------------------------
+  // Building 1 — CSE Department (1st Floor, North-West)
+  // -------------------------------------------------------------------------
+  // ADM-1-STAIR: 1st floor staircase directly aligned with ground staircase below
+  "20000000-0000-4000-8000-000000000007": { svgX: 110, svgY: 180 },
+  "ADM-1-STAIR": { svgX: 110, svgY: 180 },
+
+  // ADM-1-COR: 1st floor main computing corridor
+  "20000000-0000-4000-8000-000000000008": { svgX: 200, svgY: 130 },
+  "ADM-1-COR": { svgX: 200, svgY: 130 },
+
+  // ADM-1-ROOM: Computing records and research room
+  "20000000-0000-4000-8000-000000000009": { svgX: 290, svgY: 130 },
+  "ADM-1-ROOM": { svgX: 290, svgY: 130 },
+
+  // ADM-1-EXIT: 1st floor emergency fire escape
+  "20000000-0000-4000-8000-000000000010": { svgX: 370, svgY: 130 },
+  "ADM-1-EXIT": { svgX: 370, svgY: 130 },
+
+  // -------------------------------------------------------------------------
+  // Building 2 — IT Department (1st Floor, North-East)
+  // -------------------------------------------------------------------------
+  // ACD-1-ROOM: Software project & innovation lab
+  "20000000-0000-4000-8000-000000000019": { svgX: 660, svgY: 130 },
+  "ACD-1-ROOM": { svgX: 660, svgY: 130 },
+
+  // ACD-1-COR: 1st floor main IT corridor
+  "20000000-0000-4000-8000-000000000018": { svgX: 750, svgY: 130 },
+  "ACD-1-COR": { svgX: 750, svgY: 130 },
+
+  // ACD-1-STAIR: 1st floor staircase directly aligned with ground staircase below
+  "20000000-0000-4000-8000-000000000017": { svgX: 850, svgY: 180 },
+  "ACD-1-STAIR": { svgX: 850, svgY: 180 },
+
+  // -------------------------------------------------------------------------
+  // Building 3 — AI & ML Department (Ground Floor, South-West)
+  // -------------------------------------------------------------------------
+  // ADM-G-ENT: Department main entrance
+  "20000000-0000-4000-8000-000000000001": { svgX: 80, svgY: 430 },
+  "ADM-G-ENT": { svgX: 80, svgY: 430 },
+
+  // ADM-G-COR: Ground intelligence corridor
+  "20000000-0000-4000-8000-000000000002": { svgX: 160, svgY: 430 },
+  "ADM-G-COR": { svgX: 160, svgY: 430 },
+
+  // ADM-G-JCT: Central ground junction
+  "20000000-0000-4000-8000-000000000003": { svgX: 240, svgY: 430 },
+  "ADM-G-JCT": { svgX: 240, svgY: 430 },
+
+  // ADM-G-ROOM: Administration office (north of junction inside building)
+  "20000000-0000-4000-8000-000000000004": { svgX: 240, svgY: 345 },
+  "ADM-G-ROOM": { svgX: 240, svgY: 345 },
+
+  // ADM-G-STAIR: Ground staircase (connects to ADM-G-JCT and upstairs to ADM-1-STAIR)
+  "20000000-0000-4000-8000-000000000005": { svgX: 110, svgY: 345 },
+  "ADM-G-STAIR": { svgX: 110, svgY: 345 },
+
+  // ADM-G-EXIT: West ground emergency exit (connects to Central Walkway)
+  "20000000-0000-4000-8000-000000000006": { svgX: 370, svgY: 430 },
+  "ADM-G-EXIT": { svgX: 370, svgY: 430 },
+
+  // -------------------------------------------------------------------------
+  // Building 4 — CSBS Department (Ground Floor, South-East)
+  // -------------------------------------------------------------------------
+  // ACD-G-ENT: Department main entrance (connects west to Central Walkway)
+  "20000000-0000-4000-8000-000000000011": { svgX: 630, svgY: 430 },
+  "ACD-G-ENT": { svgX: 630, svgY: 430 },
+
+  // ACD-G-COR: Ground business systems corridor
+  "20000000-0000-4000-8000-000000000012": { svgX: 710, svgY: 430 },
+  "ACD-G-COR": { svgX: 710, svgY: 430 },
+
+  // ACD-G-JCT: Central ground junction
+  "20000000-0000-4000-8000-000000000013": { svgX: 790, svgY: 430 },
+  "ACD-G-JCT": { svgX: 790, svgY: 430 },
+
+  // ACD-G-ROOM: Seminar room (north of junction inside building)
+  "20000000-0000-4000-8000-000000000014": { svgX: 790, svgY: 345 },
+  "ACD-G-ROOM": { svgX: 790, svgY: 345 },
+
+  // ACD-G-STAIR: Ground staircase (connects to ACD-G-JCT and upstairs to ACD-1-STAIR)
+  "20000000-0000-4000-8000-000000000015": { svgX: 850, svgY: 345 },
+  "ACD-G-STAIR": { svgX: 850, svgY: 345 },
+
+  // ACD-G-EXIT: East ground emergency exit
+  "20000000-0000-4000-8000-000000000016": { svgX: 910, svgY: 430 },
+  "ACD-G-EXIT": { svgX: 910, svgY: 430 },
+
+  // -------------------------------------------------------------------------
+  // Central Courtyard & Assembly Zone
+  // -------------------------------------------------------------------------
+  // DEMO-WALKWAY: Central circulation junction
+  "20000000-0000-4000-8000-000000000021": { svgX: 500, svgY: 390 },
+  "DEMO-WALKWAY": { svgX: 500, svgY: 390 },
+
+  // DEMO-ASSEMBLY-NODE: Designated campus emergency assembly point
+  "20000000-0000-4000-8000-000000000020": { svgX: 500, svgY: 130 },
+  "DEMO-ASSEMBLY-NODE": { svgX: 500, svgY: 130 },
+};
+
+/**
+ * Fallback mapping from raw seed (x, y, floorId) to presentation coordinates.
+ */
+function getPresentationCoordByRaw(
+  rawX: number,
+  rawY: number,
+  floorId: string | null
+): { svgX: number; svgY: number } {
+  // Building 1 (1st floor ADM)
+  if (floorId?.endsWith("2")) {
+    if (rawX === 14 && rawY === -4) return { svgX: 110, svgY: 180 }; // ADM-1-STAIR
+    if (rawX === 14 && rawY === 2) return { svgX: 200, svgY: 130 };  // ADM-1-COR
+    if (rawX === 21 && rawY === 2) return { svgX: 290, svgY: 130 };  // ADM-1-ROOM
+    if (rawX === 24 && rawY === 2) return { svgX: 370, svgY: 130 };  // ADM-1-EXIT
+  }
+
+  // Building 2 (1st floor ACD)
+  if (floorId?.endsWith("4")) {
+    if (rawX === 73 && rawY === 2) return { svgX: 660, svgY: 130 };  // ACD-1-ROOM
+    if (rawX === 65 && rawY === 2) return { svgX: 750, svgY: 130 };  // ACD-1-COR
+    if (rawX === 65 && rawY === -4) return { svgX: 850, svgY: 180 }; // ACD-1-STAIR
+  }
+
+  // Building 3 (Ground floor ADM)
+  if (floorId?.endsWith("1")) {
+    if (rawX === 0 && rawY === 0) return { svgX: 80, svgY: 430 };    // ADM-G-ENT
+    if (rawX === 8 && rawY === 0) return { svgX: 160, svgY: 430 };   // ADM-G-COR
+    if (rawX === 14 && rawY === 0) return { svgX: 240, svgY: 430 };  // ADM-G-JCT
+    if (rawX === 14 && rawY === 5) return { svgX: 240, svgY: 345 };  // ADM-G-ROOM
+    if (rawX === 14 && rawY === -4) return { svgX: 110, svgY: 345 }; // ADM-G-STAIR
+    if (rawX === 26 && rawY === 0) return { svgX: 370, svgY: 430 };  // ADM-G-EXIT
+  }
+
+  // Building 4 (Ground floor ACD)
+  if (floorId?.endsWith("3")) {
+    if (rawX === 50 && rawY === 0) return { svgX: 630, svgY: 430 };  // ACD-G-ENT
+    if (rawX === 58 && rawY === 0) return { svgX: 710, svgY: 430 };  // ACD-G-COR
+    if (rawX === 65 && rawY === 0) return { svgX: 790, svgY: 430 };  // ACD-G-JCT
+    if (rawX === 65 && rawY === 6) return { svgX: 790, svgY: 345 };  // ACD-G-ROOM
+    if (rawX === 65 && rawY === -4) return { svgX: 850, svgY: 345 }; // ACD-G-STAIR
+    if (rawX === 77 && rawY === 0) return { svgX: 910, svgY: 430 };  // ACD-G-EXIT
+  }
+
+  // Outdoor
+  if (rawX === 38 && rawY === 0) return { svgX: 500, svgY: 390 };    // DEMO-WALKWAY
+  if (rawX === 45 && rawY === 20) return { svgX: 500, svgY: 130 };   // DEMO-ASSEMBLY-NODE
+
+  // Default proportional fallback
+  return { svgX: rawX * 10 + 100, svgY: 300 - rawY * 10 };
+}
+
+/**
+ * Transforms node planar location to spacious SVG presentation coordinates (1000x620).
+ * Preserves the underlying graph data while separating visual presentation.
  */
 export function transformCoordinates(
   x: number,
   y: number,
   floorId: string | null,
-  floorFilter: FloorFilter
+  floorFilter?: FloorFilter,
+  nodeId?: string
 ): { svgX: number; svgY: number } {
-  let yOffset = 0;
-  if (floorFilter === "all" && (floorId?.endsWith("2") || floorId?.endsWith("4"))) {
-    yOffset = -3.2;
+  if (nodeId && PRESENTATION_NODE_COORDINATES[nodeId]) {
+    return PRESENTATION_NODE_COORDINATES[nodeId];
   }
-  const svgX = x + 8;
-  const svgY = 24 - (y + yOffset);
-  return { svgX, svgY };
+  return getPresentationCoordByRaw(x, y, floorId);
 }
 
 /**
@@ -211,99 +382,185 @@ const defaultCandidateDirs: { dir: CandidateDir; baseScore: number }[] = [
   { dir: "TL", baseScore: 8 },
 ];
 
+/**
+ * Returns prioritized placement directions tailored for each node in its building quadrant.
+ */
 function getCandidateDirs(code: string): { dir: CandidateDir; baseScore: number }[] {
-  // Junctions and corridors at x=14 and x=65:
-  if (code === "ADM-1-COR" || code === "ACD-1-COR") {
+  // Building 1 (1st floor North-West): Corridors and Rooms prefer Top
+  if (code === "ADM-1-COR" || code === "ADM-1-ROOM" || code === "ADM-1-EXIT") {
     return [
-      { dir: "R", baseScore: 0 },
+      { dir: "T", baseScore: 0 },
       { dir: "TR", baseScore: 2 },
-      { dir: "BR", baseScore: 3 },
-      { dir: "T", baseScore: 6 },
-      { dir: "B", baseScore: 7 },
-      { dir: "L", baseScore: 15 },
-      { dir: "TL", baseScore: 16 },
-      { dir: "BL", baseScore: 17 },
+      { dir: "TL", baseScore: 3 },
+      { dir: "B", baseScore: 10 },
+      { dir: "R", baseScore: 12 },
+      { dir: "L", baseScore: 12 },
+      { dir: "BR", baseScore: 15 },
+      { dir: "BL", baseScore: 15 },
     ];
   }
-  if (code === "ADM-G-JCT" || code === "ACD-G-JCT") {
+  if (code === "ADM-1-STAIR") {
     return [
       { dir: "L", baseScore: 0 },
       { dir: "TL", baseScore: 2 },
-      { dir: "BL", baseScore: 3 },
-      { dir: "B", baseScore: 6 },
-      { dir: "T", baseScore: 7 },
+      { dir: "T", baseScore: 4 },
+      { dir: "BL", baseScore: 8 },
       { dir: "R", baseScore: 15 },
-      { dir: "TR", baseScore: 16 },
-      { dir: "BR", baseScore: 17 },
+      { dir: "B", baseScore: 18 },
+      { dir: "TR", baseScore: 20 },
+      { dir: "BR", baseScore: 20 },
     ];
   }
 
-  // Clustered room nodes (ADM-1-ROOM is between ADM-1-COR and ADM-1-EXIT):
-  // Vertically place so it never extends horizontally into neighboring circles!
-  if (code === "ADM-1-ROOM" || code === "ACD-1-ROOM") {
-    return [
-      { dir: "B", baseScore: 0 },
-      { dir: "T", baseScore: 1 },
-      { dir: "BL", baseScore: 3 },
-      { dir: "TL", baseScore: 4 },
-      { dir: "R", baseScore: 15 },
-      { dir: "TR", baseScore: 16 },
-      { dir: "BR", baseScore: 17 },
-      { dir: "L", baseScore: 18 },
-    ];
-  }
-
-  // Northward rooms: prefer Top
-  if (code === "ADM-G-ROOM" || code === "ACD-G-ROOM") {
+  // Building 2 (1st floor North-East): Corridors and Rooms prefer Top
+  if (code === "ACD-1-ROOM" || code === "ACD-1-COR") {
     return [
       { dir: "T", baseScore: 0 },
       { dir: "TL", baseScore: 2 },
       { dir: "TR", baseScore: 3 },
-      { dir: "L", baseScore: 6 },
-      { dir: "R", baseScore: 7 },
-      { dir: "B", baseScore: 15 },
-      { dir: "BL", baseScore: 16 },
-      { dir: "BR", baseScore: 17 },
+      { dir: "B", baseScore: 10 },
+      { dir: "R", baseScore: 12 },
+      { dir: "L", baseScore: 12 },
+      { dir: "BR", baseScore: 15 },
+      { dir: "BL", baseScore: 15 },
+    ];
+  }
+  if (code === "ACD-1-STAIR") {
+    return [
+      { dir: "R", baseScore: 0 },
+      { dir: "TR", baseScore: 2 },
+      { dir: "T", baseScore: 4 },
+      { dir: "BR", baseScore: 8 },
+      { dir: "L", baseScore: 15 },
+      { dir: "B", baseScore: 18 },
+      { dir: "TL", baseScore: 20 },
+      { dir: "BL", baseScore: 20 },
     ];
   }
 
-  // Staircases: prefer Right
-  if (code.includes("STAIR")) {
+  // Building 3 (Ground floor South-West):
+  if (code === "ADM-G-ROOM") {
+    return [
+      { dir: "T", baseScore: 0 },
+      { dir: "TR", baseScore: 2 },
+      { dir: "TL", baseScore: 3 },
+      { dir: "R", baseScore: 10 },
+      { dir: "L", baseScore: 10 },
+      { dir: "B", baseScore: 15 },
+      { dir: "BR", baseScore: 16 },
+      { dir: "BL", baseScore: 16 },
+    ];
+  }
+  if (code === "ADM-G-STAIR") {
+    return [
+      { dir: "L", baseScore: 0 },
+      { dir: "BL", baseScore: 2 },
+      { dir: "TL", baseScore: 3 },
+      { dir: "T", baseScore: 8 },
+      { dir: "B", baseScore: 10 },
+      { dir: "R", baseScore: 18 },
+      { dir: "TR", baseScore: 20 },
+      { dir: "BR", baseScore: 20 },
+    ];
+  }
+  if (code === "ADM-G-ENT") {
+    return [
+      { dir: "L", baseScore: 0 },
+      { dir: "BL", baseScore: 2 },
+      { dir: "B", baseScore: 4 },
+      { dir: "TL", baseScore: 6 },
+      { dir: "T", baseScore: 10 },
+      { dir: "R", baseScore: 15 },
+      { dir: "BR", baseScore: 18 },
+      { dir: "TR", baseScore: 20 },
+    ];
+  }
+  if (code === "ADM-G-COR" || code === "ADM-G-JCT" || code === "ADM-G-EXIT") {
+    return [
+      { dir: "B", baseScore: 0 },
+      { dir: "BL", baseScore: 2 },
+      { dir: "BR", baseScore: 3 },
+      { dir: "R", baseScore: 10 },
+      { dir: "L", baseScore: 12 },
+      { dir: "T", baseScore: 15 },
+      { dir: "TR", baseScore: 18 },
+      { dir: "TL", baseScore: 18 },
+    ];
+  }
+
+  // Building 4 (Ground floor South-East):
+  if (code === "ACD-G-ROOM") {
+    return [
+      { dir: "T", baseScore: 0 },
+      { dir: "TL", baseScore: 2 },
+      { dir: "TR", baseScore: 3 },
+      { dir: "R", baseScore: 10 },
+      { dir: "L", baseScore: 10 },
+      { dir: "B", baseScore: 15 },
+      { dir: "BR", baseScore: 16 },
+      { dir: "BL", baseScore: 16 },
+    ];
+  }
+  if (code === "ACD-G-STAIR") {
+    return [
+      { dir: "R", baseScore: 0 },
+      { dir: "BR", baseScore: 2 },
+      { dir: "TR", baseScore: 3 },
+      { dir: "T", baseScore: 8 },
+      { dir: "B", baseScore: 10 },
+      { dir: "L", baseScore: 18 },
+      { dir: "TL", baseScore: 20 },
+      { dir: "BL", baseScore: 20 },
+    ];
+  }
+  if (code === "ACD-G-EXIT") {
+    return [
+      { dir: "R", baseScore: 0 },
+      { dir: "BR", baseScore: 2 },
+      { dir: "B", baseScore: 4 },
+      { dir: "TR", baseScore: 6 },
+      { dir: "T", baseScore: 10 },
+      { dir: "L", baseScore: 15 },
+      { dir: "BL", baseScore: 18 },
+      { dir: "TL", baseScore: 20 },
+    ];
+  }
+  if (code === "ACD-G-ENT" || code === "ACD-G-COR" || code === "ACD-G-JCT") {
+    return [
+      { dir: "B", baseScore: 0 },
+      { dir: "BR", baseScore: 2 },
+      { dir: "BL", baseScore: 3 },
+      { dir: "R", baseScore: 10 },
+      { dir: "L", baseScore: 12 },
+      { dir: "T", baseScore: 15 },
+      { dir: "TR", baseScore: 18 },
+      { dir: "TL", baseScore: 18 },
+    ];
+  }
+
+  // Central Walkway and Assembly Zone
+  if (code === "DEMO-WALKWAY") {
+    return [
+      { dir: "R", baseScore: 0 },
+      { dir: "BR", baseScore: 2 },
+      { dir: "TR", baseScore: 3 },
+      { dir: "B", baseScore: 8 },
+      { dir: "L", baseScore: 12 },
+      { dir: "T", baseScore: 15 },
+      { dir: "BL", baseScore: 18 },
+      { dir: "TL", baseScore: 18 },
+    ];
+  }
+  if (code === "DEMO-ASSEMBLY-NODE") {
     return [
       { dir: "R", baseScore: 0 },
       { dir: "TR", baseScore: 2 },
       { dir: "BR", baseScore: 3 },
-      { dir: "B", baseScore: 5 },
-      { dir: "T", baseScore: 6 },
-      { dir: "L", baseScore: 10 },
-      { dir: "TL", baseScore: 12 },
-      { dir: "BL", baseScore: 14 },
-    ];
-  }
-
-  // Exits
-  if (code === "ADM-1-EXIT") {
-    return [
-      { dir: "T", baseScore: 0 },
-      { dir: "TR", baseScore: 2 },
-      { dir: "R", baseScore: 4 },
-      { dir: "BR", baseScore: 6 },
       { dir: "B", baseScore: 8 },
+      { dir: "T", baseScore: 10 },
       { dir: "L", baseScore: 15 },
-      { dir: "TL", baseScore: 16 },
-      { dir: "BL", baseScore: 17 },
-    ];
-  }
-  if (code === "ADM-G-EXIT" || code === "ACD-G-EXIT") {
-    return [
-      { dir: "R", baseScore: 0 },
-      { dir: "BR", baseScore: 1 },
-      { dir: "B", baseScore: 3 },
-      { dir: "TR", baseScore: 5 },
-      { dir: "T", baseScore: 8 },
-      { dir: "L", baseScore: 15 },
-      { dir: "TL", baseScore: 16 },
-      { dir: "BL", baseScore: 17 },
+      { dir: "TL", baseScore: 18 },
+      { dir: "BL", baseScore: 18 },
     ];
   }
 
@@ -318,7 +575,7 @@ function getCandidateBox(
   height: number,
   dir: CandidateDir
 ): LabelBox {
-  const gap = 0.5;
+  const gap = 5;
   switch (dir) {
     case "T":
       return { x: svgX - width / 2, y: svgY - radius - gap - height, width, height };
@@ -329,13 +586,13 @@ function getCandidateBox(
     case "L":
       return { x: svgX - radius - gap - width, y: svgY - height / 2, width, height };
     case "TR":
-      return { x: svgX + radius + gap * 0.6, y: svgY - radius - gap - height * 0.8, width, height };
+      return { x: svgX + radius + gap * 0.7, y: svgY - radius - gap * 0.7 - height, width, height };
     case "BR":
-      return { x: svgX + radius + gap * 0.6, y: svgY + radius + gap * 0.4, width, height };
+      return { x: svgX + radius + gap * 0.7, y: svgY + radius + gap * 0.7, width, height };
     case "TL":
-      return { x: svgX - radius - gap * 0.6 - width, y: svgY - radius - gap - height * 0.8, width, height };
+      return { x: svgX - radius - gap * 0.7 - width, y: svgY - radius - gap * 0.7 - height, width, height };
     case "BL":
-      return { x: svgX - radius - gap * 0.6 - width, y: svgY + radius + gap * 0.4, width, height };
+      return { x: svgX - radius - gap * 0.7 - width, y: svgY + radius + gap * 0.7, width, height };
   }
 }
 
@@ -345,14 +602,14 @@ function getBadgeCandidateBox(
   radius: number,
   dir: CandidateDir
 ): LabelBox {
-  const badgeW = 4.2;
-  const badgeH = 1.6;
+  const badgeW = 42;
+  const badgeH = 18;
   return getCandidateBox(svgX, svgY, radius, badgeW, badgeH, dir);
 }
 
 /**
- * Computes deterministic, collision-avoiding positions for all visible labels and markers.
- * Highest priority is granted to START and DEST badges, followed by route obstruction avoidance.
+ * Computes deterministic, collision-avoiding positions for all visible labels and markers
+ * on the spacious 1000x620 canvas.
  */
 export function computeAllLabelPositions(
   visibleNodes: GraphNodeDefinition[],
@@ -363,11 +620,11 @@ export function computeAllLabelPositions(
   allEdges?: GraphEdgeDefinition[]
 ): MapLayoutResult {
   const nodeInfo = visibleNodes.map((n) => {
-    const { svgX, svgY } = transformCoordinates(n.x, n.y, n.floor_id, floorFilter);
+    const { svgX, svgY } = transformCoordinates(n.x, n.y, n.floor_id, floorFilter, n.id);
     const radius = getNodeRadius(n.node_type, n.is_exit, n.is_assembly_point);
     const text = getCompactNodeLabel(n.code);
-    const width = Math.max(4.2, text.length * 0.65 + 1.0);
-    const height = 1.9;
+    const width = Math.max(50, text.length * 6.5 + 16);
+    const height = 18;
     const isStart = n.id === startNodeId;
     const isDest = n.id === destNodeId;
     return {
@@ -383,7 +640,7 @@ export function computeAllLabelPositions(
     };
   });
 
-  // Calculate active route line segments for collision avoidance
+  // Calculate active route line segments for route avoidance
   const activeSegments: RouteLineSegment[] = [];
   if (activeEdgeIds && activeEdgeIds.length > 0 && allEdges) {
     const edgeIdSet = new Set(activeEdgeIds);
@@ -402,39 +659,11 @@ export function computeAllLabelPositions(
     }
   }
 
-  function getBadgeCandidateDirs(info: typeof nodeInfo[0]): { dir: CandidateDir; baseScore: number }[] {
-    const dirs = getCandidateDirs(info.node.code);
-
-    const hasNeighborStrictAbove = nodeInfo.some(
-      (o) => o !== info && Math.abs(o.svgX - info.svgX) < 1.8 && o.svgY < info.svgY && info.svgY - o.svgY < 3.2
-    );
-    const hasNeighborStrictBelow = nodeInfo.some(
-      (o) => o !== info && Math.abs(o.svgX - info.svgX) < 1.8 && o.svgY > info.svgY && o.svgY - info.svgY < 3.2
-    );
-    const hasNeighborStrictLeft = nodeInfo.some(
-      (o) => o !== info && Math.abs(o.svgY - info.svgY) < 1.8 && o.svgX < info.svgX && info.svgX - o.svgX < 3.5
-    );
-    const hasNeighborStrictRight = nodeInfo.some(
-      (o) => o !== info && Math.abs(o.svgY - info.svgY) < 1.8 && o.svgX > info.svgX && o.svgX - info.svgX < 3.5
-    );
-
-    return dirs.filter(({ dir }) => {
-      if (hasNeighborStrictAbove && (dir === "T" || dir === "TL" || dir === "TR")) return false;
-      if (hasNeighborStrictBelow && (dir === "B" || dir === "BL" || dir === "BR")) return false;
-      if (hasNeighborStrictLeft && (dir === "L" || dir === "TL" || dir === "BL")) return false;
-      if (hasNeighborStrictRight && (dir === "R" || dir === "TR" || dir === "BR")) return false;
-      return true;
-    });
-  }
-
-  const minX = -4;
-  const maxX = 100;
-  const minY = -4;
-  const maxY = 38;
+  const { minX, maxX, minY, maxY } = CAMPUS_VIEWBOX;
 
   // =========================================================================
   // PHASE 1: PLACE CRITICAL MARKERS (START & DEST BADGES) FIRST
-  // Highest placement priority; locked before ordinary labels are computed.
+  // Placed on the opposite side of primary label direction.
   // =========================================================================
   const placedBadges = new Array<LabelBox | null>(nodeInfo.length).fill(null);
 
@@ -442,33 +671,42 @@ export function computeAllLabelPositions(
     const info = nodeInfo[idx];
     if (!info.isStart && !info.isDest) continue;
 
+    // Badges prefer opposite direction to label (e.g. if node prefers Top, badge takes Bottom)
+    const primaryDir = getCandidateDirs(info.node.code)[0]?.dir || "B";
+    const oppositeDirMap: Record<CandidateDir, CandidateDir[]> = {
+      T: ["B", "BR", "BL", "R", "L"],
+      B: ["T", "TR", "TL", "R", "L"],
+      L: ["R", "TR", "BR", "T", "B"],
+      R: ["L", "TL", "BL", "T", "B"],
+      TR: ["BL", "B", "L"],
+      TL: ["BR", "B", "R"],
+      BR: ["TL", "T", "L"],
+      BL: ["TR", "T", "R"],
+    };
+
+    const candidateBadgeDirs = oppositeDirMap[primaryDir] || ["B", "T", "R", "L"];
+
     let bestBadge: LabelBox | null = null;
     let bestScore = Infinity;
 
-    for (const { dir, baseScore } of getBadgeCandidateDirs(info)) {
+    for (let i = 0; i < candidateBadgeDirs.length; i++) {
+      const dir = candidateBadgeDirs[i];
       const cand = getBadgeCandidateBox(info.svgX, info.svgY, info.radius, dir);
-      let score = baseScore;
+      let score = i * 2;
 
       // Viewport bounds
-      if (cand.x < minX) score += (minX - cand.x) * 25000;
-      if (cand.x + cand.width > maxX) score += (cand.x + cand.width - maxX) * 25000;
-      if (cand.y < minY) score += (minY - cand.y) * 25000;
-      if (cand.y + cand.height > maxY) score += (cand.y + cand.height - maxY) * 25000;
+      if (cand.x < minX) score += (minX - cand.x) * 10000;
+      if (cand.x + cand.width > maxX) score += (cand.x + cand.width - maxX) * 10000;
+      if (cand.y < minY) score += (minY - cand.y) * 10000;
+      if (cand.y + cand.height > maxY) score += (cand.y + cand.height - maxY) * 10000;
 
       // Must never overlap ANY node circle
       for (let j = 0; j < nodeInfo.length; j++) {
         const other = nodeInfo[j];
         const dist = pointToBoxDist(other.svgX, other.svgY, cand);
-        const reqDist = other.radius + 0.35;
+        const reqDist = other.radius + 2;
         if (dist < reqDist) {
-          score += (reqDist - dist) * 25000;
-        }
-      }
-
-      // Avoid active route paths
-      for (const seg of activeSegments) {
-        if (lineIntersectsBox(seg.x1, seg.y1, seg.x2, seg.y2, cand)) {
-          score += 350;
+          score += (reqDist - dist) * 10000;
         }
       }
 
@@ -482,7 +720,7 @@ export function computeAllLabelPositions(
   }
 
   // =========================================================================
-  // PHASE 2: PLACE NODE LABELS WITH FULL COLLISION & ROUTE AVOIDANCE
+  // PHASE 2: PLACE NODE LABELS WITH FULL COLLISION AVOIDANCE
   // =========================================================================
   function scoreLabelBox(
     box: LabelBox,
@@ -492,25 +730,23 @@ export function computeAllLabelPositions(
     let score = 0;
 
     // Viewport bounds
-    if (box.x < minX) score += (minX - box.x) * 25000;
-    if (box.x + box.width > maxX) score += (box.x + box.width - maxX) * 25000;
-    if (box.y < minY) score += (minY - box.y) * 25000;
-    if (box.y + box.height > maxY) score += (box.y + box.height - maxY) * 25000;
+    if (box.x < minX) score += (minX - box.x) * 10000;
+    if (box.x + box.width > maxX) score += (box.x + box.width - maxX) * 10000;
+    if (box.y < minY) score += (minY - box.y) * 10000;
+    if (box.y + box.height > maxY) score += (box.y + box.height - maxY) * 10000;
 
-    // Node circles: fatal penalty if inside circle radius, strong penalty if within buffer
+    // Node circles: fatal penalty if inside circle radius
     for (let j = 0; j < nodeInfo.length; j++) {
       const other = nodeInfo[j];
       const dist = pointToBoxDist(other.svgX, other.svgY, box);
       if (j === currIdx) {
-        // Own node: standard clearance
-        const reqDist = other.radius + 0.2;
-        if (dist < reqDist) score += (reqDist - dist) * 15000;
+        const reqDist = other.radius + 1.5;
+        if (dist < reqDist) score += (reqDist - dist) * 5000;
       } else {
-        // Other node circles: MUST NOT overlap
         if (dist < other.radius) {
-          score += (other.radius - dist + 1) * 60000; // Fatal overlap penalty
-        } else if (dist < other.radius + 0.45) {
-          score += (other.radius + 0.45 - dist) * 12000;
+          score += (other.radius - dist + 1) * 50000;
+        } else if (dist < other.radius + 4) {
+          score += (other.radius + 4 - dist) * 5000;
         }
       }
     }
@@ -521,10 +757,10 @@ export function computeAllLabelPositions(
       if (!badge) continue;
       const area = boxOverlapArea(box, badge);
       if (area > 0) {
-        score += area * 80000; // Fatal penalty - no label may ever touch a critical marker
+        score += area * 50000;
       } else {
         const d = boxDistance(box, badge);
-        if (d < 0.4) score += (0.4 - d) * 400;
+        if (d < 3) score += (3 - d) * 500;
       }
     }
 
@@ -535,40 +771,27 @@ export function computeAllLabelPositions(
       if (!otherBox) continue;
       const area = boxOverlapArea(box, otherBox);
       if (area > 0) {
-        score += area * 35000;
+        score += area * 40000;
       } else {
         const d = boxDistance(box, otherBox);
-        if (d < 0.3) score += (0.3 - d) * 200;
+        if (d < 3) score += (3 - d) * 300;
       }
     }
 
-    // Route path avoidance: nudge labels away from glowing route lines & arrows
+    // Route path avoidance
     for (const seg of activeSegments) {
       if (lineIntersectsBox(seg.x1, seg.y1, seg.x2, seg.y2, box)) {
-        score += 450;
+        score += 200;
       }
     }
 
     return score;
   }
 
-  // Priority ordering by local density
-  const densities = nodeInfo.map((info, idx) => {
-    let count = 0;
-    for (let j = 0; j < nodeInfo.length; j++) {
-      if (idx === j) continue;
-      const d = Math.hypot(info.svgX - nodeInfo[j].svgX, info.svgY - nodeInfo[j].svgY);
-      if (d < 10) count += (10 - d);
-    }
-    return { idx, count };
-  });
-
-  densities.sort((a, b) => b.count - a.count);
-
   const placedLabels = new Array<LabelBox | null>(nodeInfo.length).fill(null);
 
-  // Pass 1: Greedy placement
-  for (const { idx } of densities) {
+  // Greedy pass
+  for (let idx = 0; idx < nodeInfo.length; idx++) {
     const info = nodeInfo[idx];
     let bestCand: LabelBox | null = null;
     let bestScore = Infinity;
@@ -584,9 +807,9 @@ export function computeAllLabelPositions(
     placedLabels[idx] = bestCand;
   }
 
-  // Pass 2 & 3: Relaxation passes to settle mutual constraints
-  for (let iter = 0; iter < 3; iter++) {
-    for (const { idx } of densities) {
+  // Relaxation pass
+  for (let iter = 0; iter < 2; iter++) {
+    for (let idx = 0; idx < nodeInfo.length; idx++) {
       const info = nodeInfo[idx];
       let bestCand = placedLabels[idx]!;
       let bestScore = scoreLabelBox(bestCand, idx, placedLabels);

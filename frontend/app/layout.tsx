@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/hooks/use-auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,18 +14,25 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CAMPUS-SAFE | AI-Based Smart Campus Emergency Management",
+  title: "CAMPUS-SAFE | Smart Campus Emergency Navigation",
   description:
-    "AI-powered emergency response and dynamic evacuation management for smart campuses. Real-time monitoring, intelligent routing, and predictive analytics.",
+    "AI-assisted smart campus emergency operations, safe evacuation routing, and interactive corridor pathfinding.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      style={{ colorScheme: "dark" }}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">{children}</body>
+      <body className="min-h-full flex flex-col bg-background text-foreground selection:bg-cyan-500/25 selection:text-cyan-200">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

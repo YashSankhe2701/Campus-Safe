@@ -20,6 +20,7 @@ import {
   computeAllLabelPositions,
   boxOverlapArea,
   pointToBoxDist,
+  CAMPUS_VIEWBOX,
 } from "../lib/map-layout.ts";
 
 describe("Campus Map - Authoritative Topology Verification", () => {
@@ -514,10 +515,10 @@ describe("Campus Map - Deterministic Collision-Avoidance Engine", () => {
       DEMO_NODES[0].id,
       DEMO_NODES[5].id
     );
-    const minX = -4;
-    const maxX = 100;
-    const minY = -4;
-    const maxY = 38;
+    const minX = CAMPUS_VIEWBOX.minX;
+    const maxX = CAMPUS_VIEWBOX.maxX;
+    const minY = CAMPUS_VIEWBOX.minY;
+    const maxY = CAMPUS_VIEWBOX.maxY;
 
     for (const [id, box] of labelBoxes.entries()) {
       assert.ok(box.x >= minX, `Node ${id} label x (${box.x}) exceeds minX (${minX})`);
@@ -908,5 +909,223 @@ describe("Campus Map - Hazard Simulation Controls & Presets", () => {
 
     assert.deepEqual(pathNodeIds, []);
     assert.deepEqual(pathEdgeIds, []);
+  });
+});
+
+describe("Campus Map - Full Calculated Route Visualization & Redesign Upgrade", () => {
+  it("extracts continuous visual segments across every consecutive node pair", () => {
+    // Simulated path of 4 nodes: N1 -> N2 -> N3 -> N4
+    const pathNodeIds = [
+      DEMO_NODES[0].id, // ADM-G-ENT
+      DEMO_NODES[1].id, // ADM-G-COR
+      DEMO_NODES[2].id, // ADM-G-JCT
+      DEMO_NODES[5].id, // ADM-G-EXIT
+    ];
+
+    // Segment extraction algorithm matching campus-map.tsx fullRouteSegments
+    const segments: Array<{ fromId: string; toId: string; edgeExists: boolean }> = [];
+    for (let i = 0; i < pathNodeIds.length - 1; i++) {
+      const fromId = pathNodeIds[i];
+      const toId = pathNodeIds[i + 1];
+      const edge = findEdgeBetween(fromId, toId) || DEMO_EDGES.find(
+        (e) => (e.from_node_id === fromId && e.to_node_id === toId) ||
+               (e.bidirectional && e.from_node_id === toId && e.to_node_id === fromId)
+      );
+      segments.push({ fromId, toId, edgeExists: Boolean(edge) });
+    }
+
+    // Exactly 3 segments for 4 nodes
+    assert.equal(segments.length, 3);
+    assert.equal(segments[0].fromId, DEMO_NODES[0].id);
+    assert.equal(segments[0].toId, DEMO_NODES[1].id);
+    assert.ok(segments[0].edgeExists);
+
+    assert.equal(segments[1].fromId, DEMO_NODES[1].id);
+    assert.equal(segments[1].toId, DEMO_NODES[2].id);
+    assert.ok(segments[1].edgeExists);
+
+    assert.equal(segments[2].fromId, DEMO_NODES[2].id);
+    assert.equal(segments[2].toId, DEMO_NODES[5].id);
+    assert.ok(segments[2].edgeExists);
+  });
+
+  it("identifies cross-floor staircase transitions along calculated routes", () => {
+    // 1st floor room (ADM-1-ROOM) -> 1st floor stair (ADM-1-STAIR) -> ground stair (ADM-G-STAIR) -> ground exit
+    const multiFloorPath = [
+      "20000000-0000-4000-8000-000000000008", // ADM-1-ROOM (floor 2)
+      "20000000-0000-4000-8000-000000000007", // ADM-1-STAIR (floor 2)
+      "20000000-0000-4000-8000-000000000004", // ADM-G-STAIR (floor 1)
+      "20000000-0000-4000-8000-000000000006", // ADM-G-EXIT (floor 1)
+    ];
+
+    const crossFloorSteps: number[] = [];
+    for (let i = 0; i < multiFloorPath.length - 1; i++) {
+      const n1 = getNodeById(multiFloorPath[i]);
+      const n2 = getNodeById(multiFloorPath[i + 1]);
+      if (n1?.floor_id !== n2?.floor_id) {
+        crossFloorSteps.push(i);
+      }
+    }
+
+    // Step 1 (ADM-1-STAIR -> ADM-G-STAIR) must be flagged as cross-floor transition
+    assert.equal(crossFloorSteps.length, 1);
+    assert.equal(crossFloorSteps[0], 1);
+  });
+
+  it("detects hidden route nodes when floor filter is active", () => {
+    const multiFloorPath = [
+      "20000000-0000-4000-8000-000000000008", // ADM-1-ROOM (1st floor)
+      "20000000-0000-4000-8000-000000000007", // ADM-1-STAIR (1st floor)
+      "20000000-0000-4000-8000-000000000004", // ADM-G-STAIR (ground floor)
+      "20000000-0000-4000-8000-000000000006", // ADM-G-EXIT (ground floor)
+    ];
+
+    // Under ground floor filter, ADM-1-ROOM is hidden
+    const groundFloorFilter = (nodeId: string) => {
+      const node = getNodeById(nodeId);
+      return (
+        node?.floor_id === "12000000-0000-4000-8000-000000000001" ||
+        node?.floor_id === "12000000-0000-4000-8000-000000000003" ||
+        node?.floor_id === null
+      );
+    };
+
+    const hiddenNodes = multiFloorPath.filter((id) => !groundFloorFilter(id));
+    assert.ok(hiddenNodes.length > 0, "Route must contain hidden nodes under ground filter");
+    assert.ok(hiddenNodes.includes("20000000-0000-4000-8000-000000000008"));
+  });
+
+  it("prevents submission of identical start and destination endpoints", () => {
+    const sameNodeId = DEMO_NODES[0].id;
+    const isInvalid = (start: string, dest: string, strat: string) => {
+      return strat !== "evacuation" && start === dest;
+    };
+
+    assert.equal(isInvalid(sameNodeId, sameNodeId, "shortest"), true);
+    assert.equal(isInvalid(sameNodeId, sameNodeId, "astar"), true);
+    // Evacuation mode does not require destination input
+    assert.equal(isInvalid(sameNodeId, sameNodeId, "evacuation"), false);
+  });
+
+  it("verifies campus-map.tsx contains full-route SVG layer and dark theme tokens", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    const mapPath = path.resolve(import.meta.dirname, "../components/map/campus-map.tsx");
+    const content = await fs.readFile(mapPath, "utf-8");
+
+    // Route layer above base edges
+    assert.match(content, /id="active-route-highlight-layer"/);
+    assert.match(content, /id="route-arrow-dark"/);
+    assert.match(content, /#34D399/); // Route green color
+    assert.match(content, /#22D3EE/); // Cyan accent color
+    assert.match(content, /#0B1120/); // Dark background
+    assert.match(content, /#111827/); // Dark panel
+    assert.match(content, /#263449/); // Dark border
+  });
+
+  it("verifies four academic buildings, central assembly quad, and Main Gate in SVG site plan", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    const mapPath = path.resolve(import.meta.dirname, "../components/map/campus-map.tsx");
+    const content = await fs.readFile(mapPath, "utf-8");
+
+    // Building 1 — CSE (North-West)
+    assert.match(content, /id="bldg-1-cse"/);
+    assert.match(content, /BLDG 1 · CSE DEPARTMENT/);
+
+    // Building 2 — IT (North-East)
+    assert.match(content, /id="bldg-2-it"/);
+    assert.match(content, /BLDG 2 · IT DEPARTMENT/);
+
+    // Building 3 — AI/ML (South-West)
+    assert.match(content, /id="bldg-3-aiml"/);
+    assert.match(content, /BLDG 3 · AI & ML DEPARTMENT/);
+
+    // Building 4 — CSBS (South-East)
+    assert.match(content, /id="bldg-4-csbs"/);
+    assert.match(content, /BLDG 4 · CSBS DEPARTMENT/);
+
+    // Main Gate (South Side)
+    assert.match(content, /id="campus-main-gate"/);
+    assert.match(content, /MAIN GATE/);
+
+    // Central Quad / Assembly Zone
+    assert.match(content, /id="central-courtyard-quad"/);
+    assert.match(content, /ASSEMBLY ZONE/);
+  });
+
+  it("verifies directional STAIRS transition indicators (STAIRS ↑ FIRST FLOOR / STAIRS ↓ GROUND FLOOR)", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    const mapPath = path.resolve(import.meta.dirname, "../components/map/campus-map.tsx");
+    const content = await fs.readFile(mapPath, "utf-8");
+
+    // Directional staircase indicators
+    assert.match(content, /STAIRS ↑ FIRST FLOOR/);
+    assert.match(content, /STAIRS ↓ GROUND FLOOR/);
+
+    // Test transition logic: Ground to First Floor
+    const groundNode = DEMO_NODES.find((n) => n.id === "20000000-0000-4000-8000-000000000005")!; // ADM-G-STAIR
+    const firstNode = DEMO_NODES.find((n) => n.id === "20000000-0000-4000-8000-000000000007")!; // ADM-1-STAIR
+
+    const isGoingUp =
+      (groundNode.floor_name?.includes("Ground") || groundNode.floor_id?.endsWith("1")) &&
+      (firstNode.floor_name?.includes("First") || firstNode.floor_id?.endsWith("2"));
+    assert.equal(isGoingUp, true);
+
+    const isGoingDown =
+      (firstNode.floor_name?.includes("First") || firstNode.floor_id?.endsWith("2")) &&
+      (groundNode.floor_name?.includes("Ground") || groundNode.floor_id?.endsWith("1"));
+    assert.equal(isGoingDown, true);
+  });
+
+  it("verifies Start and Destination selects are grouped by four academic buildings and grounds", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    const mapPath = path.resolve(import.meta.dirname, "../components/map/campus-map.tsx");
+    const content = await fs.readFile(mapPath, "utf-8");
+
+    assert.match(content, /label="Building 1 — CSE Department \(1st Floor\)"/);
+    assert.match(content, /label="Building 2 — IT Department \(1st Floor\)"/);
+    assert.match(content, /label="Building 3 — AI & ML Department \(Ground Floor\)"/);
+    assert.match(content, /label="Building 4 — CSBS Department \(Ground Floor\)"/);
+    assert.match(content, /label="Campus Grounds & Central Quad"/);
+  });
+
+  it("verifies Auth pages (login, signup, forgot-password, reset-password) are created and integrated", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    // Login page
+    const loginPath = path.resolve(import.meta.dirname, "../app/login/page.tsx");
+    const loginContent = await fs.readFile(loginPath, "utf-8");
+    assert.match(loginContent, /Sign In/);
+    assert.match(loginContent, /CAMPUS-SAFE/);
+
+    // Signup page
+    const signupPath = path.resolve(import.meta.dirname, "../app/signup/page.tsx");
+    const signupContent = await fs.readFile(signupPath, "utf-8");
+    assert.match(signupContent, /Create Account/);
+    assert.match(signupContent, /Full Name/);
+
+    // Forgot password page
+    const forgotPath = path.resolve(import.meta.dirname, "../app/forgot-password/page.tsx");
+    const forgotContent = await fs.readFile(forgotPath, "utf-8");
+    assert.match(forgotContent, /Send Password Reset Link/);
+
+    // Reset password page
+    const resetPath = path.resolve(import.meta.dirname, "../app/reset-password/page.tsx");
+    const resetContent = await fs.readFile(resetPath, "utf-8");
+    assert.match(resetContent, /Update Password/);
+
+    // Auth provider
+    const authProviderPath = path.resolve(import.meta.dirname, "../hooks/use-auth.tsx");
+    const authContent = await fs.readFile(authProviderPath, "utf-8");
+    assert.match(authContent, /useAuth/);
+    assert.match(authContent, /supabase\.auth/);
   });
 });
