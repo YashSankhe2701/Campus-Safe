@@ -1,4 +1,4 @@
-# CAMPUS-SAFE Database Schema
+# Sentinel EvacOS Database Schema
 
 > **Phase: 2 — Database Schema and Campus Graph Foundation**
 > **Provider: Supabase PostgreSQL**

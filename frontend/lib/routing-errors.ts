@@ -1,5 +1,5 @@
 /**
- * Routing error classification and user-friendly diagnostics for CAMPUS-SAFE.
+ * Routing error classification and user-friendly diagnostics for Sentinel EvacOS.
  */
 
 export type RouteErrorKind =
@@ -59,7 +59,7 @@ export function parseRoutingError(err: unknown): RouteErrorInfo {
       kind: "network",
       title: "Connection Failed",
       message:
-        "The CAMPUS-SAFE API could not be reached. Please check your network connection or verify that the backend server is running.",
+        "The Sentinel EvacOS API could not be reached. Please check your network connection or verify that the backend server is running.",
       originalError,
     };
   }

@@ -1,4 +1,4 @@
-# CAMPUS-SAFE
+# Sentinel EvacOS
 
 **AI-Based Smart Campus Emergency Management System**
 
@@ -12,7 +12,7 @@
 
 ## Overview
 
-CAMPUS-SAFE is an intelligent emergency management and navigation platform designed for educational campuses. It integrates physical campus topology modeling, multi-strategy routing algorithms, dynamic in-flight hazard rerouting, and offline-trained machine learning models to identify safe, unobstructed egress paths during emergencies.
+Sentinel EvacOS is an intelligent emergency management and navigation platform designed for educational campuses. It integrates physical campus topology modeling, multi-strategy routing algorithms, dynamic in-flight hazard rerouting, and offline-trained machine learning models to identify safe, unobstructed egress paths during emergencies.
 
 ### Implemented Capabilities
 
@@ -226,7 +226,7 @@ npm run build
 
 ## Production Deployment Prerequisites & Known Blockers
 
-Before deploying CAMPUS-SAFE to a public production environment, address the following prerequisites:
+Before deploying Sentinel EvacOS to a public production environment, address the following prerequisites:
 
 1. **Authentication & RBAC (Blocker)**: Route calculation endpoints are currently unauthenticated to facilitate public egress guidance. However, emergency incident reporting, hazard creation, and topology mutation lack administrative authentication and authorization middleware.
 2. **Dedicated Backend Container Hosting (Prerequisite)**: The FastAPI backend requires persistent container hosting (e.g., Railway, Render, Google Cloud Run, AWS ECS). It should **not** be deployed as a Vercel serverless function due to Python ML dependencies (`scikit-learn`, `numpy`, `psycopg`) and the 9.5 MB Random Forest artifact size.

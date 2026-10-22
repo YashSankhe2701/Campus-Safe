@@ -1,4 +1,4 @@
-# CAMPUS-SAFE Development Guide
+# Sentinel EvacOS Development Guide
 
 > **Phase: 5 — Synthetic Route-Time Prediction Experiment**
 

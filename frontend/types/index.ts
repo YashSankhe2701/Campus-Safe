@@ -1,5 +1,5 @@
 /**
- * CAMPUS-SAFE shared TypeScript types.
+ * Sentinel EvacOS shared TypeScript types.
  *
  * Re-exports API types and defines component-level types.
  */

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CAMPUS-SAFE | Smart Campus Emergency Navigation",
+  title: "Sentinel EvacOS | Smart Campus Emergency Navigation",
   description:
     "AI-assisted smart campus emergency operations, safe evacuation routing, and interactive corridor pathfinding.",
 };

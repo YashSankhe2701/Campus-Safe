@@ -1,5 +1,5 @@
 /**
- * CAMPUS-SAFE V3 - Campus Map Architectural Layout & Collision Avoidance Engine
+ * Sentinel EvacOS - Campus Map Architectural Layout & Collision Avoidance Engine
  *
  * Implements deterministic Point-Feature Label Placement (PFLP) on a spacious
  * 1000x620 architectural canvas with four distinct academic buildings, central

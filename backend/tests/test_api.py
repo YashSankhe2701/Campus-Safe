@@ -1,5 +1,5 @@
 """
-Backend tests for CAMPUS-SAFE API.
+Backend tests for Sentinel EvacOS API.
 
 Tests the health, info, and database-health endpoints.
 """
@@ -40,7 +40,7 @@ async def test_health_response_structure(client):
     response = await client.get("/api/health")
     data = response.json()
     assert data["status"] == "ok"
-    assert data["service"] == "campus-safe-api"
+    assert data["service"] == "sentinel-evacos-api"
     assert "version" in data
 
 
@@ -58,7 +58,7 @@ async def test_info_response_structure(client):
     """Info response must contain project metadata without secrets."""
     response = await client.get("/api/info")
     data = response.json()
-    assert data["project"] == "CAMPUS-SAFE"
+    assert data["project"] == "Sentinel EvacOS"
     assert "version" in data
     assert "environment" in data
     assert "api_status" in data

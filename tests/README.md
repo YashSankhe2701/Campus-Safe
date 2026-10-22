@@ -1,4 +1,4 @@
-# CAMPUS-SAFE — Tests
+# Sentinel EvacOS — Tests
 
 This directory contains integration and end-to-end tests.
 

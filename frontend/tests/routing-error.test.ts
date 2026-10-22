@@ -56,7 +56,7 @@ describe("Routing Error Handling - Classification & Diagnostics", () => {
     const networkApiError = new ApiRequestError(
       0,
       "Network Error",
-      "The CAMPUS-SAFE API could not be reached."
+      "The Sentinel EvacOS API could not be reached."
     );
     const parsed = parseRoutingError(networkApiError);
 

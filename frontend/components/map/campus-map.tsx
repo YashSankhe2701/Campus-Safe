@@ -642,7 +642,7 @@ export function CampusMap() {
     }
 
     const pathCodes = activePathNodeIds.map((id) => getNodeById(id)?.code || id).join(" -> ");
-    const summary = `CAMPUS-SAFE Route Summary:\n• Strategy: ${strategy}\n• Hazard: ${hazardPreset}\n• Start: ${startNode?.code} (${startNode?.name})\n• Destination: ${destNode?.code} (${destNode?.name})\n• Route Cost / Distance: ${distStr}\n• Path Sequence: ${pathCodes}`;
+    const summary = `Sentinel EvacOS Route Summary:\n• Strategy: ${strategy}\n• Hazard: ${hazardPreset}\n• Start: ${startNode?.code} (${startNode?.name})\n• Destination: ${destNode?.code} (${destNode?.name})\n• Route Cost / Distance: ${distStr}\n• Path Sequence: ${pathCodes}`;
 
     navigator.clipboard?.writeText(summary);
     setCopiedSummary(true);

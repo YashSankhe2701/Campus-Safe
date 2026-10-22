@@ -1,5 +1,5 @@
 """
-CAMPUS-SAFE API — FastAPI entry point.
+Sentinel EvacOS API — FastAPI entry point.
 
 This module creates and configures the FastAPI application,
 registers routers, configures CORS, and handles lifecycle events.

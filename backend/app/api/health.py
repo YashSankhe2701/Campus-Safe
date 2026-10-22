@@ -29,7 +29,7 @@ async def health_check():
     """
     return HealthResponse(
         status="ok",
-        service="campus-safe-api",
+        service="sentinel-evacos-api",
         version=settings.VERSION,
     )
 

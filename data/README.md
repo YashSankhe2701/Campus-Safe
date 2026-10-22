@@ -1,4 +1,4 @@
-# CAMPUS-SAFE — Data Directory
+# Sentinel EvacOS — Data Directory
 
 > **Status: NOT IMPLEMENTED YET**
 

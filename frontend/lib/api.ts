@@ -1,5 +1,5 @@
 /**
- * CAMPUS-SAFE API client.
+ * Sentinel EvacOS API client.
  *
  * All backend requests go through this module.
  * Never scatter fetch calls throughout React components.
@@ -110,7 +110,7 @@ async function apiFetch<T>(endpoint: string, options: RequestOptions = {}): Prom
       throw new ApiRequestError(
         0,
         "Network Error",
-        "The CAMPUS-SAFE API could not be reached. Please check your network connection or verify that the backend server is running."
+        "The Sentinel EvacOS API could not be reached. Please check your network connection or verify that the backend server is running."
       );
     }
     throw err;

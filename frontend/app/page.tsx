@@ -141,8 +141,8 @@ export default function DashboardPage() {
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-bold tracking-tight uppercase text-[#F1F5F9]">
-                  CAMPUS-SAFE
+                <span className="text-sm font-bold tracking-tight text-[#F1F5F9]">
+                  Sentinel EvacOS
                 </span>
                 <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/30">
                   Operations Console
@@ -311,7 +311,7 @@ export default function DashboardPage() {
                 <Shield className="h-6 w-6" />
               </div>
               <h2 className="mb-2 text-2xl font-bold tracking-tight text-[#F1F5F9] sm:text-3xl">
-                CAMPUS-SAFE Emergency OS
+                Sentinel EvacOS
               </h2>
               <p className="mx-auto max-w-2xl text-sm leading-relaxed text-[#94A3B8]">
                 AI-assisted smart campus emergency operations and evacuation management platform.
@@ -526,7 +526,7 @@ export default function DashboardPage() {
       <footer className="border-t border-[#263449] bg-[#0B1120]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 sm:px-6 py-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-[#F1F5F9]">CAMPUS-SAFE</span>
+            <span className="text-xs font-bold text-[#F1F5F9]">Sentinel EvacOS</span>
             <span className="text-[#263449]">|</span>
             <span className="text-xs text-[#94A3B8]">
               Smart Campus Emergency Navigation & Evacuation Operations

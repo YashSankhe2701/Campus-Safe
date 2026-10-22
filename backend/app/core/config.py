@@ -24,7 +24,7 @@ class Settings:
     """Application settings loaded from environment variables."""
 
     def __init__(self) -> None:
-        self.PROJECT_NAME: str = "CAMPUS-SAFE"
+        self.PROJECT_NAME: str = "Sentinel EvacOS"
         self.PROJECT_DESCRIPTION: str = (
             "AI-Based Smart Campus Emergency Management System"
         )

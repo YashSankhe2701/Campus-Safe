@@ -1,4 +1,4 @@
-# CAMPUS-SAFE API Reference
+# Sentinel EvacOS API Reference
 
 > **Phase: Foundation (Phase 1)**
 
@@ -25,7 +25,7 @@ Application health check. Always responds, independent of database status.
 ```json
 {
   "status": "ok",
-  "service": "campus-safe-api",
+  "service": "sentinel-evacos-api",
   "version": "0.1.0"
 }
 ```
@@ -75,7 +75,7 @@ Project metadata. Never exposes secrets, tokens, or connection strings.
 
 ```json
 {
-  "project": "CAMPUS-SAFE",
+  "project": "Sentinel EvacOS",
   "description": "AI-Based Smart Campus Emergency Management System",
   "version": "0.1.0",
   "environment": "development",

@@ -1,4 +1,4 @@
-# CAMPUS-SAFE Architecture
+# Sentinel EvacOS Architecture
 
 > **Phase: 5 — Synthetic Route-Time Prediction Experiment**
 
@@ -6,7 +6,7 @@
 
 ```
 ┌─────────────────────────────────────────┐
-│              CAMPUS-SAFE USER           │
+│           Sentinel EvacOS USER          │
 └────────────────┬────────────────────────┘
                  │
                  ▼

@@ -1,8 +1,8 @@
-# CAMPUS-SAFE — AI Module
+# Sentinel EvacOS — AI Module
 
 > **Status: Phase 5 synthetic route-time experiment implemented; no real-world model validation**
 
-This directory will contain the AI and machine-learning components for CAMPUS-SAFE.
+This directory will contain the AI and machine-learning components for Sentinel EvacOS.
 
 ## Planned Sub-modules
 

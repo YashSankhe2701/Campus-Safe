@@ -1,4 +1,4 @@
-# CAMPUS-SAFE — Simulation Module
+# Sentinel EvacOS — Simulation Module
 
 > **Status: NOT IMPLEMENTED YET**
 

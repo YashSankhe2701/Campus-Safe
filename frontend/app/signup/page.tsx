@@ -80,8 +80,8 @@ export default function SignUpPage() {
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.3)]">
             <Shield className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight uppercase text-[#F1F5F9]">
-            CAMPUS-SAFE
+          <h1 className="text-xl font-bold tracking-tight text-[#F1F5F9]">
+            Sentinel EvacOS
           </h1>
           <p className="mt-1 text-xs text-[#94A3B8]">
             Create a New Campus Emergency Account

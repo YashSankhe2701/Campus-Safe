@@ -1,4 +1,4 @@
-# CAMPUS-SAFE Production Deployment Guide
+# Sentinel EvacOS Production Deployment Guide
 
 > **Deployment Targets**:
 > - **Frontend**: Vercel (Next.js 15 / 16 App Router)
@@ -186,7 +186,7 @@ curl -f https://<your-backend-domain>/api/health
 ```
 **Expected Response**: `200 OK`
 ```json
-{"status":"ok","service":"campus-safe-api","version":"0.1.0"}
+{"status":"ok","service":"sentinel-evacos-api","version":"0.1.0"}
 ```
 
 ### 2. Database Connectivity Readiness Check
@@ -204,7 +204,7 @@ curl -f https://<your-backend-domain>/api/info
 ```
 **Expected Response**: `200 OK`
 ```json
-{"project":"CAMPUS-SAFE","version":"0.1.0","environment":"production","api_status":"operational"}
+{"project":"Sentinel EvacOS","version":"0.1.0","environment":"production","api_status":"operational"}
 ```
 
 ### 4. Graph Topology Retrieval

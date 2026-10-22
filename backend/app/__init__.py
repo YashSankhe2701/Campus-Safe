@@ -1,1 +1,1 @@
-# CAMPUS-SAFE Backend Application
+# Sentinel EvacOS Backend Application

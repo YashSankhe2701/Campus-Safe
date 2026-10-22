@@ -1,4 +1,4 @@
-# CAMPUS-SAFE FastAPI Backend Container
+# Sentinel EvacOS FastAPI Backend Container
 FROM python:3.11-slim
 
 WORKDIR /app

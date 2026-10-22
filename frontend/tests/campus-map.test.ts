@@ -1104,7 +1104,7 @@ describe("Campus Map - Full Calculated Route Visualization & Redesign Upgrade", 
     const loginPath = path.resolve(import.meta.dirname, "../app/login/page.tsx");
     const loginContent = await fs.readFile(loginPath, "utf-8");
     assert.match(loginContent, /Sign In/);
-    assert.match(loginContent, /CAMPUS-SAFE/);
+    assert.match(loginContent, /Sentinel EvacOS/);
 
     // Signup page
     const signupPath = path.resolve(import.meta.dirname, "../app/signup/page.tsx");
